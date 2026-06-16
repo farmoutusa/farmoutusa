@@ -9,16 +9,13 @@ const PORT = process.env.PORT ?? 3001;
 app.use(cors());
 app.use(express.json());
 
-// ── API routes ─────────────────────────────────────────────────────────────
-app.use('/api/check',    require('./routes/check'));
-app.use('/api/queue',    require('./routes/queue'));
-app.use('/api/settings', require('./routes/settings'));
+app.use('/api/check', require('./routes/check'));
 
 app.get('/api/health', (req, res) =>
   res.json({ status: 'ok', time: new Date().toISOString() }),
 );
 
-// ── Serve built frontend in production ─────────────────────────────────────
+// Serve built frontend in production (single-service deploy option)
 const publicDir = path.join(__dirname, 'public');
 if (fs.existsSync(publicDir)) {
   app.use(express.static(publicDir));

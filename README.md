@@ -1,13 +1,15 @@
 # Callback Window Checker
 
-A real-time web app for 24/7 technical support teams. Type any customer phone number → get instant DST-aware verdict on whether it's a good time to call, plus a shared callback queue so day and night shifts never double-call.
+A simple tool for 24/7 technical support teams: type a customer's phone number, instantly see whether it's currently OK to call them back (DST-aware, based on their local time), and if not, when to try again.
+
+No database, no accounts — just a stateless phone-number → verdict checker.
 
 ---
 
 ## Local setup (development)
 
 ### Prerequisites
-- Node.js **22+** (`node --version`) — the backend uses `node:sqlite`, a built-in module that became stable in Node 22.15+. Node 24 (recommended) works out of the box with no native addon compilation.
+- Node.js 18+ (`node --version`)
 - Two terminal windows
 
 ### 1. Install dependencies
@@ -30,8 +32,7 @@ cd backend
 npm run dev        # uses node --watch for auto-restart
 ```
 
-The backend listens on **http://localhost:3001**.  
-A SQLite database is created at `backend/data/callback.db` on first run.
+The backend listens on **http://localhost:3001**.
 
 ### 3. Start the frontend
 
@@ -41,7 +42,7 @@ cd frontend
 npm run dev
 ```
 
-Open **http://localhost:5173** in your browser.  
+Open **http://localhost:5173** in your browser.
 The Vite dev server proxies `/api/*` calls to the backend automatically.
 
 ---
@@ -60,7 +61,7 @@ The Vite dev server proxies `/api/*` calls to the backend automatically.
 | `+91 22 6180 0000` | India | Asia/Kolkata |
 | `+55 11 9999 8888` | Brazil | America/Sao_Paulo |
 
-Multi-timezone countries (US, AU, BR) will show a dropdown for the agent to confirm which zone applies.
+Multi-timezone countries (US, AU, BR) will show a dropdown so the agent can confirm which zone applies.
 
 ---
 
@@ -68,37 +69,32 @@ Multi-timezone countries (US, AU, BR) will show a dropdown for the agent to conf
 
 ```
 callback-window-checker/
-├── backend/              Express + SQLite
+├── backend/              Express, stateless
 │   ├── server.js         Entry point; serves API + built frontend in prod
-│   ├── db.js             better-sqlite3 setup + schema migrations
 │   └── routes/
-│       ├── check.js      POST /api/check  ← core phone→timezone→verdict logic
-│       ├── queue.js      GET/POST/PUT/DELETE /api/queue
-│       └── settings.js   GET/PUT /api/settings
+│       └── check.js      POST /api/check  ← phone→timezone→verdict logic
 └── frontend/             React + Vite + Tailwind
     └── src/
-        ├── App.jsx        Tab shell + auth gate
-        ├── api.js         Typed fetch wrapper
+        ├── App.jsx        Page shell
+        ├── api.js         Fetch wrapper
         └── components/
-            ├── AgentAuth.jsx      Name/password screen; persists to localStorage
             ├── PhoneChecker.jsx   Input + triggers /api/check
-            ├── ResultCard.jsx     Green/amber verdict card with timezone picker
-            ├── CallbackQueue.jsx  Shared queue table; auto-refreshes every 30 s
-            └── Settings.jsx       Business hours, retry interval, team password
+            └── ResultCard.jsx     Green/amber verdict card with timezone picker
 ```
 
-### How timezone detection works
+### How it works
 
 1. `libphonenumber-js` parses the raw number → validates it + extracts country code.
 2. `libphonenumber-geo-carrier` maps the parsed number to one or more IANA timezone IDs using area-code data. For multi-zone countries this narrows down to the most likely zone.
 3. If `libphonenumber-geo-carrier` can't resolve a zone, a country → timezone fallback map covers 50+ countries.
 4. `luxon` computes `DateTime.now().setZone(zone)` — always DST-correct because it uses the IANA database, never a hardcoded UTC offset.
+5. Business hours (08:00–19:00) and retry interval (3h15m) are constants at the top of `backend/routes/check.js` — edit them directly to change behavior.
 
 ---
 
 ## Deploying online (free: Netlify + Render)
 
-This repo ships with `netlify.toml` and `render.yaml` pre-configured for a free split deployment: Netlify hosts the React frontend, Render hosts the Express + SQLite backend.
+Since there's no database, this is about as simple as full-stack deploys get — both services are stateless.
 
 ### 1. Backend → Render
 
@@ -114,7 +110,7 @@ This repo ships with `netlify.toml` and `render.yaml` pre-configured for a free 
 3. **Site configuration → Environment variables** → add `VITE_API_URL` = the Render URL from step 1.
 4. Trigger a deploy. Share the resulting `*.netlify.app` URL with your team.
 
-> **Persistence note**: Render's free tier has an ephemeral filesystem — the SQLite file resets if the service redeploys or sleeps for an extended period. For a small team checking a shared queue, this is a minor inconvenience, not a blocker. If it becomes a problem, swap `backend/db.js` to use a free hosted Postgres (e.g. Supabase or Neon) via the `pg` package — this only touches `db.js` and the three route files, all of which use plain SQL.
+> Render's free tier sleeps after inactivity and takes ~30s to wake on the next request — harmless here since there's no data to lose. If that wake delay is annoying, ping `https://your-app.onrender.com/api/health` every 10 min with a free service like cron-job.org to keep it warm.
 
 ### Alternative: single-service deploy (no Netlify)
 
@@ -130,9 +126,6 @@ Then on Render, use build command `cd frontend && npm install && npm run build &
 
 ## Future work / known limitations
 
-- **Real per-user auth**: replace localStorage name + shared password with an auth library (e.g. Passport.js + sessions, or a JWT-based approach). Store agent records in the DB.
-- **Push notifications**: notify agents when a callback becomes due (Web Push or a Slack webhook).
-- **PostgreSQL support**: swap `better-sqlite3` for `pg` when you need a managed database with no filesystem dependency.
-- **Audit log**: record who changed a queue item's status and when.
-- **Number history**: per-agent or per-number lookup history.
+- **Shared callback queue**: an earlier version of this app included a shared queue (so agents could log callbacks and avoid double-calling) plus configurable settings and a name/password gate. That was intentionally removed to keep this tool to a single purpose. If you want it back, it's in this repo's git history.
+- **Configurable business hours**: currently hardcoded constants in `backend/routes/check.js`. Add a small settings UI + storage if you need this adjustable without a code change.
 - **Dark mode**: Tailwind's `dark:` variant is ready to wire up.

@@ -47,7 +47,7 @@ function LiveAgentClock() {
   );
 }
 
-export default function ResultCard({ result, onZoneChange, onSaveToQueue, savedId }) {
+export default function ResultCard({ result, onZoneChange }) {
   const {
     verdict, formattedNumber, country,
     candidateZones, selectedZone, localTime,
@@ -172,23 +172,6 @@ export default function ResultCard({ result, onZoneChange, onSaveToQueue, savedI
           </div>
         )}
       </div>
-
-      {/* Save to queue */}
-      {!isUnknown && (
-        <div className="flex items-center gap-3 pt-1">
-          {savedId ? (
-            <span className="text-sm font-medium text-green-700">✓ Saved to queue #{savedId}</span>
-          ) : (
-            <button
-              onClick={onSaveToQueue}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold
-                         hover:bg-blue-700 transition-colors"
-            >
-              Save to Callback Queue
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }

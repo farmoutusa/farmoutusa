@@ -2,7 +2,12 @@ const express = require('express');
 const router = express.Router();
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const { DateTime } = require('luxon');
-const db = require('../db');
+
+// Business-hours window and retry interval — edit these to change behavior.
+const BUSINESS_START = '08:00';
+const BUSINESS_END   = '19:00';
+const RETRY_HOURS    = 3;
+const RETRY_MINUTES  = 15;
 
 // ── timezone resolver ─────────────────────────────────────────────────────────
 // Try libphonenumber-geo-carrier first (area-code precision for multi-TZ countries).
@@ -76,17 +81,6 @@ const COUNTRY_TZ = {
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
-function getSettings() {
-  const rows = db.prepare('SELECT key, value FROM settings').all();
-  const s = Object.fromEntries(rows.map(r => [r.key, r.value]));
-  return {
-    businessStart: s.business_start ?? '08:00',
-    businessEnd:   s.business_end   ?? '19:00',
-    retryHours:    parseInt(s.retry_hours   ?? '3',  10),
-    retryMinutes:  parseInt(s.retry_minutes ?? '15', 10),
-  };
-}
-
 function parseHHMM(str) {
   const [h, m] = str.split(':').map(Number);
   return h * 60 + m;
@@ -157,9 +151,8 @@ router.post('/', async (req, res) => { try {
     ? selectedZone
     : candidateZones[0];
 
-  const settings   = getSettings();
-  const nowInZone  = DateTime.now().setZone(zone);
-  const inWindow   = inBusinessHours(nowInZone, settings.businessStart, settings.businessEnd);
+  const nowInZone = DateTime.now().setZone(zone);
+  const inWindow  = inBusinessHours(nowInZone, BUSINESS_START, BUSINESS_END);
 
   let verdict               = 'call_now';
   let callbackDueIso        = null; // UTC-anchored ISO for storage / agent display
@@ -169,12 +162,12 @@ router.post('/', async (req, res) => { try {
   if (!inWindow) {
     verdict = 'schedule';
 
-    const callbackDue      = DateTime.now().plus({ hours: settings.retryHours, minutes: settings.retryMinutes });
+    const callbackDue      = DateTime.now().plus({ hours: RETRY_HOURS, minutes: RETRY_MINUTES });
     callbackDueIso         = callbackDue.toISO();
     callbackDueCustomerIso = callbackDue.setZone(zone).toISO();
 
     // Always surface next 8am so agents are never told to call at 3am
-    const next    = nextWindowOpen(nowInZone, settings.businessStart);
+    const next    = nextWindowOpen(nowInZone, BUSINESS_START);
     nextWindowIso = next.toISO();
   }
 
@@ -186,10 +179,10 @@ router.post('/', async (req, res) => { try {
     localTime:             nowInZone.toISO(),
     localTimeFormatted:    nowInZone.toFormat('cccc, LLL d HH:mm:ss ZZZZ'),
     verdict,
-    businessStart:         settings.businessStart,
-    businessEnd:           settings.businessEnd,
-    retryHours:            settings.retryHours,
-    retryMinutes:          settings.retryMinutes,
+    businessStart:         BUSINESS_START,
+    businessEnd:           BUSINESS_END,
+    retryHours:            RETRY_HOURS,
+    retryMinutes:          RETRY_MINUTES,
     callbackDueIso,
     callbackDueCustomerIso,
     nextWindowIso,

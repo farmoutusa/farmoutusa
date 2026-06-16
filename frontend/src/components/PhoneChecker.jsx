@@ -2,19 +2,17 @@ import React, { useState } from 'react';
 import { api } from '../api.js';
 import ResultCard from './ResultCard.jsx';
 
-export default function PhoneChecker({ agentName, onSavedToQueue }) {
+export default function PhoneChecker() {
   const [number,      setNumber]      = useState('');
   const [result,      setResult]      = useState(null);
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState('');
-  const [savedId,     setSavedId]     = useState(null);
   const [selectedZone, setSelectedZone] = useState(null);
 
   async function runCheck(zoneOverride) {
     const zone = zoneOverride !== undefined ? zoneOverride : selectedZone;
     setLoading(true);
     setError('');
-    setSavedId(null);
     try {
       const data = await api.check(number.trim(), zone);
       setResult(data);
@@ -31,31 +29,8 @@ export default function PhoneChecker({ agentName, onSavedToQueue }) {
     e.preventDefault();
     if (!number.trim()) return;
     setResult(null);
-    setSavedId(null);
     setSelectedZone(null);
     runCheck(null);
-  }
-
-  async function handleSaveToQueue() {
-    if (!result) return;
-    try {
-      const saved = await api.saveToQueue({
-        agent_name:               agentName,
-        customer_number:          number.trim(),
-        formatted_number:         result.formattedNumber,
-        country:                  result.country,
-        timezone:                 result.selectedZone,
-        local_time_iso:           result.localTime,
-        verdict:                  result.verdict,
-        callback_due_iso:         result.callbackDueIso,
-        callback_due_customer_iso: result.callbackDueCustomerIso,
-        next_window_iso:          result.nextWindowIso,
-      });
-      setSavedId(saved.id);
-      onSavedToQueue();
-    } catch (e) {
-      alert('Could not save to queue: ' + e.message);
-    }
   }
 
   return (
@@ -96,8 +71,6 @@ export default function PhoneChecker({ agentName, onSavedToQueue }) {
         <ResultCard
           result={result}
           onZoneChange={zone => { setSelectedZone(zone); runCheck(zone); }}
-          onSaveToQueue={handleSaveToQueue}
-          savedId={savedId}
         />
       )}
     </div>

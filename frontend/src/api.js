@@ -15,11 +15,5 @@ async function req(method, path, body) {
 }
 
 export const api = {
-  check:             (number, selectedZone)  => req('POST', '/api/check',           { number, selectedZone }),
-  getQueue:          ()                       => req('GET',  '/api/queue'),
-  saveToQueue:       (item)                   => req('POST', '/api/queue',           item),
-  updateQueueStatus: (id, status)             => req('PUT',  `/api/queue/${id}`,     { status }),
-  deleteFromQueue:   (id)                     => req('DELETE', `/api/queue/${id}`),
-  getSettings:       ()                       => req('GET',  '/api/settings'),
-  saveSettings:      (settings)               => req('PUT',  '/api/settings',        settings),
+  check: (number, selectedZone) => req('POST', '/api/check', { number, selectedZone }),
 };
