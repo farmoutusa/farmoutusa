@@ -20,6 +20,10 @@ export default function App() {
           <USATimezonePanel />
         </div>
       </main>
+
+      <footer className="mt-8 py-4 text-center text-xs text-gray-400">
+        Created by <span className="font-semibold text-gray-500">Masterlabs</span> for <span className="font-semibold text-gray-500">Farmoutusa</span>
+      </footer>
     </div>
   );
 }
