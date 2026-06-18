@@ -5,22 +5,6 @@ import USATimezonePanel from './components/USATimezonePanel.jsx';
 const PASSWORD = 'farmoutusa';
 const SESSION_KEY = 'cwc_auth';
 
-function FarmoutLogo({ size = 'md', onDark = false }) {
-  const farmColor = onDark ? 'text-white'    : 'text-blue-900';
-  const usaColor  = onDark ? 'text-blue-300' : 'text-gray-400';
-  const s = {
-    sm: { main: 'text-xl',   sub: 'text-xs'   },
-    md: { main: 'text-2xl',  sub: 'text-sm'   },
-    lg: { main: 'text-4xl',  sub: 'text-lg'   },
-  }[size];
-  return (
-    <div className="flex items-baseline select-none leading-none">
-      <span className={`font-black tracking-tight ${farmColor} ${s.main}`}>farm</span>
-      <span className={`font-black tracking-tight text-orange-500 ${s.main}`}>out</span>
-      <span className={`font-bold ${usaColor} ${s.sub} ml-0.5`}>usa</span>
-    </div>
-  );
-}
 
 function PasswordGate({ onUnlock }) {
   const [input, setInput] = useState('');
@@ -41,9 +25,7 @@ function PasswordGate({ onUnlock }) {
     <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
       <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm border-t-4 border-orange-500">
         <div className="text-center mb-6 space-y-1">
-          <div className="flex justify-center mb-1">
-            <FarmoutLogo size="lg" />
-          </div>
+          <img src="/farmoutusalogo.png" alt="farmout usa" className="w-56 mx-auto" />
           <h1 className="text-xl font-bold text-blue-900">Callback VM System</h1>
         </div>
 
@@ -87,10 +69,10 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <header className="bg-blue-900 text-white shadow-lg border-t-4 border-orange-500">
-        <div className="max-w-5xl mx-auto px-4 py-4">
-          <FarmoutLogo size="md" onDark />
-          <h1 className="text-2xl font-bold text-white mt-0.5 leading-tight">Callback VM System</h1>
+      <header className="bg-white shadow-md border-t-4 border-orange-500">
+        <div className="max-w-5xl mx-auto px-4 py-3">
+          <img src="/farmoutusalogo.png" alt="farmout usa" className="w-44 -my-2" />
+          <h1 className="text-xl font-bold text-blue-900 leading-tight">Callback VM System</h1>
         </div>
       </header>
 
