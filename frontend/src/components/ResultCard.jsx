@@ -1,5 +1,46 @@
 import React, { useState, useEffect } from 'react';
 
+const ZONE_LABELS = {
+  // USA
+  'America/New_York':    'Eastern · New York',
+  'America/Chicago':     'Central · Chicago',
+  'America/Denver':      'Mountain · Denver',
+  'America/Los_Angeles': 'Pacific · Los Angeles',
+  'America/Phoenix':     'Arizona · Phoenix (no DST)',
+  'America/Anchorage':   'Alaska · Anchorage',
+  'Pacific/Honolulu':    'Hawaii · Honolulu',
+  // Canada
+  'America/Toronto':     'Eastern · Toronto',
+  'America/Winnipeg':    'Central · Winnipeg',
+  'America/Edmonton':    'Mountain · Edmonton',
+  'America/Vancouver':   'Pacific · Vancouver',
+  // Australia
+  'Australia/Sydney':    'AEDT/AEST · Sydney',
+  'Australia/Brisbane':  'AEST · Brisbane',
+  'Australia/Adelaide':  'ACDT/ACST · Adelaide',
+  'Australia/Perth':     'AWST · Perth',
+  'Australia/Darwin':    'ACST · Darwin',
+  // Brazil
+  'America/Sao_Paulo':   'BRT · São Paulo',
+  'America/Fortaleza':   'BRT · Fortaleza',
+  'America/Manaus':      'AMT · Manaus',
+  'America/Belem':       'BRT · Belém',
+  // Russia
+  'Europe/Moscow':       'MSK · Moscow',
+  'Asia/Yekaterinburg':  'YEKT · Yekaterinburg',
+  'Asia/Novosibirsk':    'NOVT · Novosibirsk',
+  'Asia/Irkutsk':        'IRKT · Irkutsk',
+  'Asia/Vladivostok':    'VLAT · Vladivostok',
+  // Indonesia
+  'Asia/Jakarta':        'WIB · Jakarta',
+  'Asia/Makassar':       'WITA · Makassar',
+  'Asia/Jayapura':       'WIT · Jayapura',
+};
+
+function zoneLabel(zone) {
+  return ZONE_LABELS[zone] ?? zone.split('/').pop().replace(/_/g, ' ');
+}
+
 function fmt(iso, zone, showSeconds = false) {
   if (!iso) return '—';
   try {
@@ -75,7 +116,7 @@ export default function ResultCard({ result, onZoneChange }) {
         <label className="block text-xs font-medium text-gray-600 mb-1">
           Customer Timezone
           {multiZone && (
-            <span className="ml-2 font-normal text-amber-600">multi-timezone — select the correct one</span>
+            <span className="ml-2 font-normal text-amber-600">select the customer's region</span>
           )}
         </label>
         {multiZone ? (
@@ -85,8 +126,8 @@ export default function ResultCard({ result, onZoneChange }) {
             className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white
                        focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            {candidateZones.map((z, i) => (
-              <option key={z} value={z}>{z}{i === 0 ? ' ★' : ''}</option>
+            {candidateZones.map(z => (
+              <option key={z} value={z}>{zoneLabel(z)}</option>
             ))}
           </select>
         ) : (
