@@ -29,7 +29,7 @@ export default function PhoneChecker() {
   }
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-3 max-w-2xl">
       <div className="bg-white rounded-2xl shadow p-6">
         <h2 className="text-lg font-semibold text-gray-800 mb-4">Check Callback Window</h2>
         <form onSubmit={handleSubmit} className="flex gap-3">
