@@ -5,6 +5,7 @@ import ResultCard from './ResultCard.jsx';
 export default function PhoneChecker() {
   const [number,       setNumber]      = useState('');
   const [result,       setResult]      = useState(null);
+  const [loading,      setLoading]     = useState(false);
   const [error,        setError]       = useState('');
   const [selectedZone, setSelectedZone] = useState(null);
 

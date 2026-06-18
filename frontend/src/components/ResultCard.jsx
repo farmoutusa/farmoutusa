@@ -90,10 +90,11 @@ export default function ResultCard({ result, onZoneChange }) {
     error: resultError,
   } = result;
 
-  const isGood    = verdict === 'call_now';
-  const isUnknown = verdict === 'unknown_timezone';
-  const retry     = `${retryHours}h ${String(retryMinutes).padStart(2, '0')}m`;
-  const multiZone = candidateZones?.length > 1;
+  const isGood      = verdict === 'call_now';
+  const isUnknown   = verdict === 'unknown_timezone';
+  const retry       = `${retryHours}h ${String(retryMinutes).padStart(2, '0')}m`;
+  const multiZone   = candidateZones?.length > 1;
+  const needsPicker = multiZone && !result.autoDetected;
 
   const borderCls = isGood ? 'border-green-400' : isUnknown ? 'border-yellow-400' : 'border-amber-400';
   const bgCls     = isGood ? 'bg-green-50'      : isUnknown ? 'bg-yellow-50'      : 'bg-amber-50';
@@ -113,25 +114,30 @@ export default function ResultCard({ result, onZoneChange }) {
 
       {/* Timezone */}
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">
-          Customer Timezone
-          {multiZone && (
-            <span className="ml-2 font-normal text-amber-600">select the customer's region</span>
-          )}
-        </label>
-        {multiZone ? (
-          <select
-            value={selectedZone}
-            onChange={e => onZoneChange(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white
-                       focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            {candidateZones.map(z => (
-              <option key={z} value={z}>{zoneLabel(z)}</option>
-            ))}
-          </select>
+        <div className="text-xs font-medium text-gray-600 mb-1">Customer Timezone</div>
+        {needsPicker ? (
+          <>
+            <p className="text-xs text-amber-600 mb-1">
+              Could not auto-detect — please select the customer's region:
+            </p>
+            <select
+              value={selectedZone}
+              onChange={e => onZoneChange(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white
+                         focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {candidateZones.map(z => (
+                <option key={z} value={z}>{zoneLabel(z)}</option>
+              ))}
+            </select>
+          </>
         ) : (
-          <div className="text-sm font-semibold text-gray-800">{selectedZone}</div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-gray-800">{zoneLabel(selectedZone)}</span>
+            <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">
+              📍 auto-detected
+            </span>
+          </div>
         )}
       </div>
 
