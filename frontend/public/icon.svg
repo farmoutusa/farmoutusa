@@ -1,0 +1,13 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" fill="#1e3a8a"/>
+  <rect width="512" height="18" fill="#f97316"/>
+  <text x="256" y="202" text-anchor="middle" dominant-baseline="middle"
+    font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="148"
+    fill="white">farm</text>
+  <text x="256" y="348" text-anchor="middle" dominant-baseline="middle"
+    font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="148"
+    fill="#f97316">out</text>
+  <text x="256" y="450" text-anchor="middle" dominant-baseline="middle"
+    font-family="Arial, sans-serif" font-weight="600" font-size="80"
+    fill="#93c5fd">usa</text>
+</svg>

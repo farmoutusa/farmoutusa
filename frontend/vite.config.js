@@ -1,21 +1,49 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: ['farmoutusalogo.png', 'icon.svg'],
+      manifest: {
+        name: 'Callback VM System',
+        short_name: 'CallbackVM',
+        description: 'Phone timezone callback window checker — Farmoutusa',
+        theme_color: '#1e3a8a',
+        background_color: '#ffffff',
+        display: 'standalone',
+        orientation: 'portrait',
+        scope: '/',
+        start_url: '/',
+        icons: [
+          {
+            src: 'icon.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'any',
+          },
+          {
+            src: 'icon.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'maskable',
+          },
+          {
+            src: 'farmoutusalogo.png',
+            sizes: '512x512',
+            type: 'image/png',
+          },
+        ],
+      },
+    }),
+  ],
   server: {
     port: 5173,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-    },
   },
   build: {
-    // On Netlify (NETLIFY=true is set automatically), output to the default dist/
-    // folder so Netlify can find and deploy it.
-    // Locally, output to ../backend/public so Express can serve the frontend too.
     outDir: process.env.NETLIFY ? 'dist' : '../backend/public',
     emptyOutDir: true,
   },

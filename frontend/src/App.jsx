@@ -1,6 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import PhoneChecker from './components/PhoneChecker.jsx';
 import USATimezonePanel from './components/USATimezonePanel.jsx';
+
+function useInstallPrompt() {
+  const [prompt,    setPrompt]    = useState(null);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    const handler = e => { e.preventDefault(); setPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    window.addEventListener('appinstalled', () => { setPrompt(null); setDismissed(true); });
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  async function install() {
+    if (!prompt) return;
+    prompt.prompt();
+    const { outcome } = await prompt.userChoice;
+    if (outcome === 'accepted') setDismissed(true);
+    setPrompt(null);
+  }
+
+  return { canInstall: !!prompt && !dismissed, install, dismiss: () => setDismissed(true) };
+}
 
 const PASSWORD   = 'farmoutusavmtool';
 const SESSION_KEY = 'cwc_auth';
@@ -95,6 +117,7 @@ export default function App() {
   );
 
   const isMobile = device === 'mobile';
+  const { canInstall, install, dismiss } = useInstallPrompt();
 
   if (!unlocked) {
     return <PasswordGate onUnlock={dev => { setDevice(dev); setUnlocked(true); }} />;
@@ -136,6 +159,36 @@ export default function App() {
         {' '}|{' '}
         <span className="font-semibold text-gray-500">+639479984309</span>
       </footer>
+
+      {canInstall && (
+        <div className="fixed bottom-0 left-0 right-0 bg-blue-900 text-white px-4 py-3
+                        flex items-center justify-between shadow-2xl z-50 border-t-2 border-orange-500">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="bg-white rounded-lg px-2 py-1 shrink-0">
+              <img src="/farmoutusalogo.png" alt="" className="h-7" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-bold truncate">Install Callback VM System</p>
+              <p className="text-xs text-blue-300">Add to home screen for quick access</p>
+            </div>
+          </div>
+          <div className="flex gap-2 shrink-0 ml-3">
+            <button
+              onClick={dismiss}
+              className="text-xs text-blue-300 hover:text-white px-2 py-1.5 transition-colors"
+            >
+              Later
+            </button>
+            <button
+              onClick={install}
+              className="bg-orange-500 text-white px-4 py-1.5 rounded-lg text-xs font-bold
+                         hover:bg-orange-600 transition-colors whitespace-nowrap"
+            >
+              Install
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
