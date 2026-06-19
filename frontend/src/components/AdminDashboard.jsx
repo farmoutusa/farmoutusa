@@ -112,6 +112,15 @@ export default function AdminDashboard({ onLogout }) {
 
   const maxHours = rangeData?.agents?.length ? Math.max(...rangeData.agents.map(a => a.totalHours), 1) : 1;
 
+  if (dashLoading && !dash) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center gap-3">
+        <div className="w-8 h-8 border-4 border-blue-900 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-gray-500">Loading dashboard…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Header */}

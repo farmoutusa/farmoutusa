@@ -130,16 +130,7 @@ export default function App() {
   const loggingOut = useRef(false);
   const [activeTab, setActiveTab] = useState('attendance');
 
-  function handleAdminLogout() {
-    sessionStorage.removeItem(ADMIN_SESSION_KEY);
-    window.location.reload();
-  }
-
-  if (adminUnlocked) {
-    return <AdminDashboard onLogout={handleAdminLogout} />;
-  }
-
-  // Ask "are you sure?" when the user tries to close the tab/window
+  // ALL hooks must be called before any early returns (Rules of Hooks)
   useEffect(() => {
     if (!unlocked) return;
     const handler = e => {
@@ -150,6 +141,11 @@ export default function App() {
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [unlocked]);
+
+  function handleAdminLogout() {
+    sessionStorage.removeItem(ADMIN_SESSION_KEY);
+    window.location.reload();
+  }
 
   async function handleLogout() {
     if (!window.confirm('Log out? You will need to enter the password again next time.')) return;
@@ -162,6 +158,10 @@ export default function App() {
     sessionStorage.removeItem(SESSION_KEY);
     sessionStorage.removeItem(DEVICE_KEY);
     window.location.reload();
+  }
+
+  if (adminUnlocked) {
+    return <AdminDashboard onLogout={handleAdminLogout} />;
   }
 
   if (!unlocked) {
