@@ -127,10 +127,8 @@ export default function App() {
 
   const isMobile = device === 'mobile';
   const { canInstall, install, dismiss } = useInstallPrompt();
-  const loggingOut    = useRef(false);
-  const tamperLogged  = useRef(false);
-  const [activeTab,      setActiveTab]      = useState('attendance');
-  const [clockTampered,  setClockTampered]  = useState(false);
+  const loggingOut = useRef(false);
+  const [activeTab, setActiveTab] = useState('attendance');
 
   function handleAdminLogout() {
     sessionStorage.removeItem(ADMIN_SESSION_KEY);
@@ -140,43 +138,6 @@ export default function App() {
   if (adminUnlocked) {
     return <AdminDashboard onLogout={handleAdminLogout} />;
   }
-
-  // Detect system clock changes using performance.now() (monotonic, unaffected by OS clock)
-  useEffect(() => {
-    if (!unlocked) return;
-    let refDate = Date.now();
-    let refPerf = performance.now();
-    let wakeTs  = 0; // timestamp of last sleep→wake transition
-
-    function resetRef() { refDate = Date.now(); refPerf = performance.now(); }
-
-    // On wake: reset reference immediately AND record wake time so the
-    // interval skips the grace period (avoids sleep/wake false positives)
-    function onVisibility() { if (!document.hidden) { wakeTs = Date.now(); resetRef(); } }
-    document.addEventListener('visibilitychange', onVisibility);
-
-    const id = setInterval(async () => {
-      if (document.hidden) return;
-      if (Date.now() - wakeTs < 5000) return; // 5-second grace after wake
-      const drift = Math.abs(Date.now() - (refDate + (performance.now() - refPerf)));
-      if (drift > 30000 && !tamperLogged.current) {
-        tamperLogged.current = true;
-        setClockTampered(true);
-        // Log incident to Google Sheet silently
-        try {
-          const agentName = (() => {
-            try { return JSON.parse(localStorage.getItem('cwc_attendance'))?.agentName || localStorage.getItem('cwc_agent_name') || 'Unknown'; } catch { return localStorage.getItem('cwc_agent_name') || 'Unknown'; }
-          })();
-          let ip = 'Unknown';
-          try { ip = (await (await fetch('https://api.ipify.org?format=json')).json()).ip; } catch {}
-          const ts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).format(new Date());
-          fetch('https://script.google.com/macros/s/AKfycbwhExqtU7hEphKCNP7WWUkp5sAQMFEPsdd1lPgUO1O7cXyEFUf4ecHB2OuXNoWb8lUs/exec?' + new URLSearchParams({ type: 'attendance', action: 'CLOCK_TAMPER', agentName, timestamp: ts, drift: Math.round(drift / 1000) + 's', ip, _t: Date.now() }), { method: 'GET', mode: 'no-cors', cache: 'no-store' });
-        } catch {}
-      }
-    }, 3000);
-
-    return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVisibility); };
-  }, [unlocked]);
 
   // Ask "are you sure?" when the user tries to close the tab/window
   useEffect(() => {
@@ -214,15 +175,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {clockTampered && (
-        <div className="sticky top-0 z-50 bg-red-600 text-white px-4 py-3 text-center shadow-lg">
-          <p className="text-sm font-bold">🚨 System clock change detected.</p>
-          <p className="text-xs mt-0.5 text-red-100">
-            Changing the time is recorded and goes against company policy.
-            Your work hours will not be changed — they are computed using server time.
-          </p>
-        </div>
-      )}
       <header className="bg-white shadow-md border-t-4 border-orange-500">
         <div className={`max-w-5xl mx-auto flex items-end justify-between ${isMobile ? 'px-3 py-2' : 'px-4 py-3'}`}>
           <div>

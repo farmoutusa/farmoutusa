@@ -176,7 +176,7 @@ export default function AttendanceTab({ isMobile }) {
     try {
       await log({
         type: 'attendance', action: 'CLOCK_IN',
-        agentName: agentName.trim(), timestamp: phTime,
+        agentName: agentName.trim(), timestamp: phTime, clientEpoch: ts,
         ip: info.ip, location: [info.city, info.country].filter(Boolean).join(', '),
         isp: info.isp, device: info.deviceType, os: info.os,
         browser: info.browser, screenRes: info.screenRes, screenshot: b64,
@@ -192,7 +192,7 @@ export default function AttendanceTab({ isMobile }) {
     const now = Date.now();
     const accumulated = att.totalWorkMs + (now - att.workSessionStart);
     try {
-      await log({ type: 'attendance', action: 'BREAK_START', agentName: att.agentName, timestamp: fmtNow(), breakType, breakReason: reason || '', workedSoFar: fmtDuration(accumulated) });
+      await log({ type: 'attendance', action: 'BREAK_START', agentName: att.agentName, timestamp: fmtNow(), clientEpoch: Date.now(), breakType, breakReason: reason || '', workedSoFar: fmtDuration(accumulated) });
     } catch {}
     saveAtt({ ...att, phase: 'on_break', totalWorkMs: accumulated, workSessionStart: null, breakStart: now, breakType, breakReason: reason || '' });
     setShowBreakPicker(false); setPendingOther(false); setOtherReason('');
@@ -204,7 +204,7 @@ export default function AttendanceTab({ isMobile }) {
     breakExceededRef.current = false;
     setBreakAlert(null);
     try {
-      await log({ type: 'attendance', action: 'RESUME', agentName: att.agentName, timestamp: fmtNow(), breakType: att.breakType, breakDuration: fmtDuration(now - att.breakStart) });
+      await log({ type: 'attendance', action: 'RESUME', agentName: att.agentName, timestamp: fmtNow(), clientEpoch: now, breakType: att.breakType, breakDuration: fmtDuration(now - att.breakStart) });
     } catch {}
     saveAtt({ ...att, phase: 'working', workSessionStart: now, breakStart: null, breakType: null, breakReason: '' });
   }
@@ -219,7 +219,7 @@ export default function AttendanceTab({ isMobile }) {
     try {
       await log({
         type: 'attendance', action: 'CLOCK_OUT',
-        agentName: att.agentName, timestamp: phTime,
+        agentName: att.agentName, timestamp: phTime, clientEpoch: now,
         clockInTime: att.clockInPhTime,
         totalWorked: fmtDuration(totalWorkMs),
         durationHours: (totalWorkMs / 3600000).toFixed(4),

@@ -121,6 +121,31 @@ function handleAttendance(data) {
 
   var serverEpoch = new Date().getTime();
 
+  // Server-side clock check — compare client's epoch to server's own time.
+  // This is immune to sleep/wake false positives because the check only
+  // fires at the moment the staff member actively submits an action.
+  var clientEpoch = parseInt(data.clientEpoch) || 0;
+  if (clientEpoch > 0 && action !== 'CLOCK_TAMPER') {
+    var clockDiffMs = Math.abs(serverEpoch - clientEpoch);
+    if (clockDiffMs > 5 * 60 * 1000) { // > 5 minutes apart
+      try {
+        var diffMins = Math.round(clockDiffMs / 60000);
+        var clientDir = (serverEpoch > clientEpoch) ? 'behind' : 'ahead of';
+        MailApp.sendEmail(
+          NOTIFICATION_EMAIL,
+          '⚠️ Clock Mismatch: ' + (data.agentName || 'Unknown') + ' (' + diffMins + ' min ' + clientDir + ' server)',
+          'A staff member\'s local clock differs significantly from the server clock.\n\n' +
+          'Staff:       ' + (data.agentName || 'Unknown') + '\n' +
+          'Action:      ' + action + '\n' +
+          'Client time: ' + new Date(clientEpoch).toISOString() + '\n' +
+          'Server time: ' + new Date(serverEpoch).toISOString() + '\n' +
+          'Difference:  ' + diffMins + ' minutes (' + clientDir + ' server)\n\n' +
+          'Work hours are computed entirely from server timestamps and are not affected.'
+        );
+      } catch (mailErr) { console.error('Clock check email error:', mailErr.toString()); }
+    }
+  }
+
   // For CLOCK_OUT: recompute duration from server-side epochs (cheat-proof)
   var serverHours = null;
   var serverWorked = '';
@@ -172,25 +197,7 @@ function handleAttendance(data) {
     }
   }
 
-  // Immediate alert on clock tamper
-  if (action === 'CLOCK_TAMPER') {
-    try {
-      MailApp.sendEmail(
-        NOTIFICATION_EMAIL,
-        '🚨 CLOCK TAMPER: ' + (data.agentName || 'Unknown') + ' — ' + (data.timestamp || ''),
-        'SECURITY ALERT\n\n' +
-        'Staff:     ' + (data.agentName || 'Unknown') + '\n' +
-        'Time:      ' + (data.timestamp  || '') + '\n' +
-        'Clock drift detected: ' + (data.drift || '') + '\n' +
-        'IP:        ' + (data.ip         || '') + '\n\n' +
-        'The staff member\'s system clock was changed while they were logged in.\n' +
-        'Work hours are computed from server-side timestamps and are not affected.'
-      );
-    } catch (mailErr) { console.error('Tamper email error:', mailErr.toString()); }
-    return;
-  }
-
-  // Notify on clock-in too
+  // Notify on clock-in
   if (action === 'CLOCK_IN') {
     try {
       MailApp.sendEmail(
