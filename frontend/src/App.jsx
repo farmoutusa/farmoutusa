@@ -52,8 +52,7 @@ function PasswordGate({ onUnlock }) {
     <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
       <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm border-t-4 border-orange-500">
         <div className="text-center mb-6">
-          <img src="/farmoutusalogo.png" alt="farmout usa" className="w-56 mx-auto" />
-          <h1 className="text-xl font-bold text-blue-900 mt-1">Callback VM System</h1>
+          <img src="/farmoutusalogo.png" alt="farmout usa" className="w-56 mx-auto mt-4" />
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
