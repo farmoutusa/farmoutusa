@@ -4,6 +4,7 @@
 
 var NOTIFICATION_EMAIL = 'zotacvoicemail@gmail.com';
 var SHEET_ID           = '1ai6NZwW2Inp3ta1uj48UTQeWMwXQfOBuU0iZP8tUFEM';
+var ADMIN_KEY          = 'S26Ultr@';
 
 function doPost(e) { return doGet(e); }
 
@@ -21,6 +22,10 @@ function doGet(e) {
       return ContentService
         .createTextOutput(JSON.stringify({ success: true }))
         .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.type === 'admin') {
+      return handleAdminRequest(data);
     }
 
     // ── Callback Log ──────────────────────────────────────────────────────
@@ -300,6 +305,125 @@ function updateDailySummary(ss, data) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Run these manually once to authorize all scopes (MailApp + DriveApp)
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin API — returns JSONP so the browser can read it despite GAS CORS limits
+// ─────────────────────────────────────────────────────────────────────────────
+
+function handleAdminRequest(data) {
+  var cb = data.callback || 'callback';
+
+  function jsonp(obj) {
+    return ContentService
+      .createTextOutput(cb + '(' + JSON.stringify(obj) + ')')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+
+  if (data.adminKey !== ADMIN_KEY) return jsonp({ error: 'Unauthorized' });
+
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    if (data.action === 'dashboard') return jsonp(getAdminDashboard(ss));
+    if (data.action === 'range')     return jsonp(getAdminRange(ss, data.from, data.to));
+    return jsonp({ error: 'Unknown action' });
+  } catch (err) {
+    return jsonp({ error: err.toString() });
+  }
+}
+
+function getAdminDashboard(ss) {
+  var tz    = 'Asia/Manila';
+  var today = Utilities.formatDate(new Date(), tz, 'MM/dd/yyyy');
+  var attSheet = ss.getSheetByName('Attendance Log');
+  var agentMap = {};
+
+  if (attSheet && attSheet.getLastRow() > 1) {
+    var rows = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 11).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      var r   = rows[i];
+      var rDate   = String(r[0]).substring(0, 10);
+      if (rDate !== today) continue;
+      var agent   = String(r[1]);
+      var action  = String(r[2]);
+      var details = String(r[3]);
+      var epoch   = Number(r[10]);
+      if (!agentMap[agent]) {
+        agentMap[agent] = { name: agent, status: 'unknown', clockInTime: '', breakType: '', breakStart: 0, totalBreakMs: 0 };
+      }
+      var a = agentMap[agent];
+      if (action === 'CLOCK_IN')   { a.status = 'working';   a.clockInTime = String(r[0]); a.totalBreakMs = 0; a.breakStart = 0; }
+      if (action === 'BREAK_START') { a.status = 'on_break'; a.breakType = details.split(/[\s—|]/)[0].trim(); a.breakStart = epoch; }
+      if (action === 'RESUME')     { a.status = 'working';   if (a.breakStart > 0) { a.totalBreakMs += epoch - a.breakStart; } a.breakStart = 0; a.breakType = ''; }
+      if (action === 'CLOCK_OUT')  { a.status = 'clocked_out'; if (a.breakStart > 0) { a.totalBreakMs += epoch - a.breakStart; } a.breakStart = 0; }
+    }
+  }
+
+  var nowMs = new Date().getTime();
+  var agents = Object.keys(agentMap).map(function(k) {
+    var a = agentMap[k];
+    var currentBreakMs = (a.status === 'on_break' && a.breakStart > 0) ? nowMs - a.breakStart : 0;
+    return { name: a.name, status: a.status, clockInTime: a.clockInTime, breakType: a.breakType, totalBreakMs: Math.round(a.totalBreakMs + currentBreakMs) };
+  });
+
+  var sumSheet = ss.getSheetByName('Daily Summary');
+  var todaySummary = [];
+  if (sumSheet && sumSheet.getLastRow() > 1) {
+    var sumRows = sumSheet.getRange(2, 1, sumSheet.getLastRow() - 1, 6).getValues();
+    for (var j = 0; j < sumRows.length; j++) {
+      if (String(sumRows[j][0]) === today) {
+        todaySummary.push({ date: sumRows[j][0], agent: sumRows[j][1], hours: sumRows[j][2], sessions: sumRows[j][3], firstClockIn: sumRows[j][4], lastClockOut: sumRows[j][5] });
+      }
+    }
+  }
+
+  return {
+    agents: agents,
+    todaySummary: todaySummary,
+    today: today,
+    serverTime: Utilities.formatDate(new Date(), tz, 'MMM d, yyyy h:mm:ss a'),
+  };
+}
+
+function getAdminRange(ss, fromDate, toDate) {
+  // fromDate / toDate come from HTML date input: "yyyy-MM-dd"
+  if (!fromDate || !toDate) return { error: 'Missing date range', agents: [] };
+
+  var sumSheet = ss.getSheetByName('Daily Summary');
+  if (!sumSheet || sumSheet.getLastRow() < 2) return { from: fromDate, to: toDate, agents: [] };
+
+  // Convert "yyyy-MM-dd" → sortable "yyyy/MM/dd" for easy string comparison
+  function toSortable(ymd) { return ymd.replace(/-/g, '/'); }
+  // Sheet stores "MM/dd/yyyy" → convert to sortable
+  function sheetToSortable(s) {
+    var p = String(s).split('/');
+    return p.length === 3 ? p[2] + '/' + p[0] + '/' + p[1] : '';
+  }
+
+  var fromS = toSortable(fromDate);
+  var toS   = toSortable(toDate);
+
+  var rows = sumSheet.getRange(2, 1, sumSheet.getLastRow() - 1, 3).getValues();
+  var map  = {};
+  for (var i = 0; i < rows.length; i++) {
+    var sortable = sheetToSortable(rows[i][0]);
+    if (!sortable || sortable < fromS || sortable > toS) continue;
+    var agent = String(rows[i][1]);
+    var hrs   = parseFloat(rows[i][2]) || 0;
+    if (!map[agent]) map[agent] = { agent: agent, totalHours: 0, days: 0 };
+    map[agent].totalHours += hrs;
+    map[agent].days++;
+  }
+
+  var agents = Object.keys(map).map(function(k) {
+    var a   = map[k];
+    var tot = Math.round(a.totalHours * 10000) / 10000;
+    var h   = Math.floor(tot);
+    var m   = Math.round((tot - h) * 60);
+    return { agent: a.agent, totalHours: tot, days: a.days, label: h + ' hr' + (h !== 1 ? 's' : '') + (m > 0 ? ' ' + m + ' min' : '') };
+  }).sort(function(a, b) { return b.totalHours - a.totalHours; });
+
+  return { from: fromDate, to: toDate, agents: agents };
+}
 
 function testEmail() {
   MailApp.sendEmail(NOTIFICATION_EMAIL, 'Callback VM — Test Email',

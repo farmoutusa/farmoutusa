@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import PhoneChecker from './components/PhoneChecker.jsx';
 import USATimezonePanel from './components/USATimezonePanel.jsx';
 import AttendanceTab from './components/AttendanceTab.jsx';
+import AdminDashboard from './components/AdminDashboard.jsx';
 
 function useInstallPrompt() {
   const [prompt,    setPrompt]    = useState(null);
@@ -25,11 +26,13 @@ function useInstallPrompt() {
   return { canInstall: !!prompt && !dismissed, install, dismiss: () => setDismissed(true) };
 }
 
-const PASSWORD   = 'farmoutusavmtool';
-const SESSION_KEY = 'cwc_auth';
-const DEVICE_KEY  = 'cwc_device';
+const PASSWORD        = 'farmoutusavmtool';
+const ADMIN_PASSWORD  = 'S26Ultr@';
+const SESSION_KEY     = 'cwc_auth';
+const DEVICE_KEY      = 'cwc_device';
+const ADMIN_SESSION_KEY = 'cwc_admin';
 
-function PasswordGate({ onUnlock }) {
+function PasswordGate({ onUnlock, onAdminUnlock }) {
   const [input,  setInput]  = useState('');
   const [error,  setError]  = useState(false);
   const [device, setDevice] = useState(() =>
@@ -38,7 +41,10 @@ function PasswordGate({ onUnlock }) {
 
   function handleSubmit(e) {
     e.preventDefault();
-    if (input === PASSWORD) {
+    if (input === ADMIN_PASSWORD) {
+      sessionStorage.setItem(ADMIN_SESSION_KEY, '1');
+      onAdminUnlock();
+    } else if (input === PASSWORD) {
       sessionStorage.setItem(SESSION_KEY, '1');
       sessionStorage.setItem(DEVICE_KEY, device);
       onUnlock(device);
@@ -109,6 +115,9 @@ function PasswordGate({ onUnlock }) {
 }
 
 export default function App() {
+  const [adminUnlocked, setAdminUnlocked] = useState(
+    () => sessionStorage.getItem(ADMIN_SESSION_KEY) === '1'
+  );
   const [unlocked, setUnlocked] = useState(
     () => sessionStorage.getItem(SESSION_KEY) === '1'
   );
@@ -122,6 +131,15 @@ export default function App() {
   const tamperLogged  = useRef(false);
   const [activeTab,      setActiveTab]      = useState('attendance');
   const [clockTampered,  setClockTampered]  = useState(false);
+
+  function handleAdminLogout() {
+    sessionStorage.removeItem(ADMIN_SESSION_KEY);
+    window.location.reload();
+  }
+
+  if (adminUnlocked) {
+    return <AdminDashboard onLogout={handleAdminLogout} />;
+  }
 
   // Detect system clock changes using performance.now() (monotonic, unaffected by OS clock)
   useEffect(() => {
@@ -183,7 +201,12 @@ export default function App() {
   }
 
   if (!unlocked) {
-    return <PasswordGate onUnlock={dev => { setDevice(dev); setUnlocked(true); }} />;
+    return (
+      <PasswordGate
+        onUnlock={dev => { setDevice(dev); setUnlocked(true); }}
+        onAdminUnlock={() => setAdminUnlocked(true)}
+      />
+    );
   }
 
   return (
