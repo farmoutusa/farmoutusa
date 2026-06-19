@@ -45,18 +45,10 @@ function doPost(e) {
 
     // ── Send email ────────────────────────────────────────────────────────
     var subject = 'Voicemail Callback Done by ' + (data.agentName || 'Unknown') +
-                  ' for Phone ' + (data.customerPhone || 'Unknown');
+                  ' for Phone ' + (data.customerPhone || 'Unknown') +
+                  ' ' + (data.customerName || '');
 
-    var body = [
-      'Cust name: '    + (data.customerName  || '—'),
-      'Cust phone: '   + (data.customerPhone || '—'),
-      'Cust time: '    + (data.customerTime  || '—'),
-      'Agent: '        + (data.agentName     || '—'),
-      'Agent time: '   + (data.agentTime     || '—'),
-      '',
-      'Call Details:',
-      data.callDetails || '—'
-    ].join('\n');
+    var body = data.callDetails || '—';
 
     MailApp.sendEmail(NOTIFICATION_EMAIL, subject, body);
 
