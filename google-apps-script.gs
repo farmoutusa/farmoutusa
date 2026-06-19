@@ -322,8 +322,12 @@ function updateDailySummary(ss, data) {
     }
   }
 
-  // New row for this staff member today
-  sheet.appendRow([today, agent, Math.round(newHours * 10000) / 10000, 1, data.clockInTime || '', data.timestamp || '']);
+  // New row for this staff member today.
+  // Columns 5 & 6 are set via setValues with text format so Sheets doesn't
+  // auto-convert the time strings to Date objects on subsequent reads.
+  var newRow = sheet.getLastRow() + 1;
+  sheet.appendRow([today, agent, Math.round(newHours * 10000) / 10000, 1, '', '']);
+  sheet.getRange(newRow, 5, 1, 2).setNumberFormat('@').setValues([[data.clockInTime || '', data.timestamp || '']]);
   sheet.autoResizeColumns(1, 6);
 }
 
@@ -456,6 +460,16 @@ function handleAdminRequest(data) {
   }
 }
 
+// Convert a value from getValues() to a string — handles both plain strings
+// and Date objects (Sheets auto-converts date-like strings to Date objects).
+function fmtSheetVal(val, dateFmt) {
+  if (!val && val !== 0) return '';
+  if (val instanceof Date) {
+    return Utilities.formatDate(val, 'Asia/Manila', dateFmt || 'MM/dd/yyyy hh:mm:ss a');
+  }
+  return String(val);
+}
+
 function getAdminDashboard(ss) {
   var tz    = 'Asia/Manila';
   var today = Utilities.formatDate(new Date(), tz, 'MM/dd/yyyy');
@@ -495,8 +509,17 @@ function getAdminDashboard(ss) {
   if (sumSheet && sumSheet.getLastRow() > 1) {
     var sumRows = sumSheet.getRange(2, 1, sumSheet.getLastRow() - 1, 6).getValues();
     for (var j = 0; j < sumRows.length; j++) {
-      if (String(sumRows[j][0]) === today) {
-        todaySummary.push({ date: sumRows[j][0], agent: sumRows[j][1], hours: sumRows[j][2], sessions: sumRows[j][3], firstClockIn: sumRows[j][4], lastClockOut: sumRows[j][5] });
+      // Column 1 (date) can come back as a Date object if Sheets auto-detected it
+      var rowDate = fmtSheetVal(sumRows[j][0], 'MM/dd/yyyy');
+      if (rowDate === today) {
+        todaySummary.push({
+          date:        rowDate,
+          agent:       sumRows[j][1],
+          hours:       sumRows[j][2],
+          sessions:    sumRows[j][3],
+          firstClockIn:  fmtSheetVal(sumRows[j][4]),
+          lastClockOut:  fmtSheetVal(sumRows[j][5]),
+        });
       }
     }
   }
@@ -518,9 +541,10 @@ function getAdminRange(ss, fromDate, toDate) {
 
   // Convert "yyyy-MM-dd" → sortable "yyyy/MM/dd" for easy string comparison
   function toSortable(ymd) { return ymd.replace(/-/g, '/'); }
-  // Sheet stores "MM/dd/yyyy" → convert to sortable
+  // Sheet date column can be a string "MM/dd/yyyy" or a Date object — both handled
   function sheetToSortable(s) {
-    var p = String(s).split('/');
+    var str = s instanceof Date ? Utilities.formatDate(s, 'Asia/Manila', 'MM/dd/yyyy') : String(s);
+    var p   = str.split('/');
     return p.length === 3 ? p[2] + '/' + p[0] + '/' + p[1] : '';
   }
 
