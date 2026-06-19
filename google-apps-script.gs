@@ -19,7 +19,7 @@ function doGet(e) {
     var data = e.parameter;
 
     // ── Write to sheet ────────────────────────────────────────────────────
-    var ss    = SpreadsheetApp.getActiveSpreadsheet();
+    var ss    = SpreadsheetApp.openById('1ai6NZwW2Inp3ta1uj48UTQeWMwXQfOBuU0iZP8tUFEM');
     var sheet = ss.getSheetByName('Callback Log');
 
     if (!sheet) {
