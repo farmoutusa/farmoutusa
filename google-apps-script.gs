@@ -72,13 +72,16 @@ function handleAttendance(data) {
 
   if (!sheet) {
     sheet = ss.insertSheet('Attendance Log');
+    // Column 11 (Server Epoch) is internal — used to compute authoritative duration
     var hdrs = ['Timestamp (PH)','Agent','Action','Details','IP Address',
                 'Location','Device / OS / Browser','Screenshot',
-                'Work Duration','Hours (decimal)'];
+                'Work Duration','Hours (decimal)','Server Epoch'];
     sheet.appendRow(hdrs);
     sheet.getRange(1,1,1,hdrs.length)
       .setFontWeight('bold').setBackground('#1e3a8a').setFontColor('#ffffff');
     sheet.setFrozenRows(1);
+    // Hide the internal epoch column
+    sheet.hideColumns(11);
   }
 
   // Build "details" cell based on action
@@ -111,6 +114,19 @@ function handleAttendance(data) {
     }
   }
 
+  var serverEpoch = new Date().getTime();
+
+  // For CLOCK_OUT: recompute duration from server-side epochs (cheat-proof)
+  var serverHours = null;
+  var serverWorked = '';
+  if (action === 'CLOCK_OUT') {
+    var computed = computeServerDuration(sheet, data.agentName || '', serverEpoch);
+    if (computed) {
+      serverHours  = computed.hours;
+      serverWorked = computed.hhmmss;
+    }
+  }
+
   sheet.appendRow([
     Utilities.formatDate(new Date(), 'Asia/Manila', 'MM/dd/yyyy hh:mm:ss a'),
     data.agentName || '',
@@ -120,13 +136,16 @@ function handleAttendance(data) {
     data.location || '',
     [data.device, data.os, data.browser].filter(Boolean).join(' · '),
     screenshotLink,
-    data.totalWorked   || '',
-    data.durationHours ? parseFloat(data.durationHours) : '',
+    action === 'CLOCK_OUT' ? (serverWorked || data.totalWorked || '') : (data.workedSoFar || ''),
+    action === 'CLOCK_OUT' ? (serverHours !== null ? Math.round(serverHours * 10000) / 10000 : '') : '',
+    serverEpoch,
   ]);
   sheet.autoResizeColumns(1, 10);
 
   // Update Daily Summary on clock-out
   if (action === 'CLOCK_OUT') {
+    // Pass server-computed hours to summary (override browser value)
+    if (serverHours !== null) data.durationHours = serverHours.toFixed(4);
     updateDailySummary(ss, data);
 
     // Notify agent via email
@@ -165,6 +184,58 @@ function handleAttendance(data) {
       console.error('Clock-in email error:', mailErr.toString());
     }
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Server-side duration calculator — reads server epochs stored in column 11.
+// Called at CLOCK_OUT time so the browser clock cannot influence payroll data.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function computeServerDuration(sheet, agentName, clockOutEpoch) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+
+  var today  = Utilities.formatDate(new Date(), 'Asia/Manila', 'MM/dd/yyyy');
+  var values = sheet.getRange(2, 1, lastRow - 1, 11).getValues();
+
+  var clockInEpoch    = null;
+  var breakStartEpoch = null;
+  var totalBreakMs    = 0;
+
+  for (var i = 0; i < values.length; i++) {
+    var rowAgent  = String(values[i][1]);
+    var rowAction = String(values[i][2]);
+    var rowEpoch  = values[i][10];  // column 11 (0-indexed col 10)
+    var rowDate   = String(values[i][0]).substring(0, 10); // "MM/dd/yyyy"
+
+    if (rowAgent !== agentName || rowDate !== today || !rowEpoch) continue;
+
+    if (rowAction === 'CLOCK_IN') {
+      // Start fresh (handles multiple sessions)
+      clockInEpoch    = rowEpoch;
+      totalBreakMs    = 0;
+      breakStartEpoch = null;
+    }
+    if (rowAction === 'BREAK_START') {
+      breakStartEpoch = rowEpoch;
+    }
+    if (rowAction === 'RESUME' && breakStartEpoch) {
+      totalBreakMs   += (rowEpoch - breakStartEpoch);
+      breakStartEpoch = null;
+    }
+  }
+
+  if (!clockInEpoch) return null;
+
+  var workedMs = Math.max(0, clockOutEpoch - clockInEpoch - totalBreakMs);
+  var s   = Math.floor(workedMs / 1000);
+  var h   = Math.floor(s / 3600);
+  var m   = Math.floor((s % 3600) / 60);
+  var sec = s % 60;
+  return {
+    hours: workedMs / 3600000,
+    hhmmss: String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0'),
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
