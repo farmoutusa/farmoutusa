@@ -31,10 +31,16 @@ const SESSION_KEY       = 'cwc_auth';
 const DEVICE_KEY        = 'cwc_device';
 const ADMIN_SESSION_KEY = 'cwc_admin';
 
+// Built-in fallback passwords — used only when GAS is unreachable or not yet
+// redeployed with the validate_login endpoint. Once GAS is redeployed, server-
+// side passwords take full priority (including any passwords changed via admin).
+const FALLBACK_ADMIN_PW = 'S26Ultr@';
+const FALLBACK_AGENT_PW = 'farmoutusavmtool';
+
 function validateLogin(password) {
   return new Promise((resolve, reject) => {
     const cb = '__login_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-    const tid = setTimeout(() => { cleanup(); reject(new Error('timeout')); }, 12000);
+    const tid = setTimeout(() => { cleanup(); reject(new Error('timeout')); }, 7000);
     const script = document.createElement('script');
     function cleanup() { clearTimeout(tid); delete window[cb]; script.remove(); }
     window[cb] = (data) => { cleanup(); resolve(data); };
@@ -58,25 +64,28 @@ function PasswordGate({ onUnlock, onAdminUnlock }) {
     if (!input.trim() || loading) return;
     setLoading(true);
     setError(null);
+    let role = null;
     try {
       const result = await validateLogin(input);
-      if (result.role === 'admin') {
-        sessionStorage.setItem(ADMIN_SESSION_KEY, '1');
-        sessionStorage.setItem('cwc_admin_key', input);
-        onAdminUnlock();
-      } else if (result.role === 'agent') {
-        sessionStorage.setItem(SESSION_KEY, '1');
-        sessionStorage.setItem(DEVICE_KEY, device);
-        onUnlock(device);
-      } else {
-        setError('wrong');
-        setInput('');
-      }
-    } catch (err) {
-      setError(err.message === 'timeout' ? 'timeout' : 'network');
-    } finally {
-      setLoading(false);
+      role = result.role; // 'admin' | 'agent' | null
+    } catch {
+      // GAS unreachable or not yet redeployed — check built-in fallback
+      if (input === FALLBACK_ADMIN_PW) role = 'admin';
+      else if (input === FALLBACK_AGENT_PW) role = 'agent';
     }
+    if (role === 'admin') {
+      sessionStorage.setItem(ADMIN_SESSION_KEY, '1');
+      sessionStorage.setItem('cwc_admin_key', input);
+      onAdminUnlock();
+    } else if (role === 'agent') {
+      sessionStorage.setItem(SESSION_KEY, '1');
+      sessionStorage.setItem(DEVICE_KEY, device);
+      onUnlock(device);
+    } else {
+      setError('wrong');
+      setInput('');
+    }
+    setLoading(false);
   }
 
   return (
