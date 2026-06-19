@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwhExqtU7hEphKCNP7WWUkp5sAQMFEPsdd1lPgUO1O7cXyEFUf4ecHB2OuXNoWb8lUs/exec';
-const ADMIN_KEY  = 'S26Ultr@';
 
 // ── JSONP fetch (bypasses CORS — GAS wraps response in a callback) ──────────
+// adminKey is read fresh from sessionStorage on every call so a password
+// change mid-session doesn't require a page reload for the new key to take effect.
 function fetchAdmin(action, extra = {}) {
   return new Promise((resolve, reject) => {
+    const adminKey = sessionStorage.getItem('cwc_admin_key') || '';
     const cb   = '__adm_' + Date.now() + '_' + Math.random().toString(36).slice(2);
     const tid  = setTimeout(() => { cleanup(); reject(new Error('Request timed out')); }, 15000);
     const script = document.createElement('script');
@@ -15,7 +17,7 @@ function fetchAdmin(action, extra = {}) {
     window[cb] = (data) => { cleanup(); resolve(data); };
     script.onerror = () => { cleanup(); reject(new Error('Network error')); };
 
-    const params = new URLSearchParams({ type: 'admin', adminKey: ADMIN_KEY, action, callback: cb, _t: Date.now(), ...extra });
+    const params = new URLSearchParams({ type: 'admin', adminKey, action, callback: cb, _t: Date.now(), ...extra });
     script.src = SCRIPT_URL + '?' + params;
     document.head.appendChild(script);
   });
@@ -81,6 +83,13 @@ export default function AdminDashboard({ onLogout }) {
   const [newStaffName, setNewStaffName] = useState('');
   const [staffError,   setStaffError]   = useState(null);
 
+  // Password management
+  const [newAgentPw,  setNewAgentPw]  = useState('');
+  const [newAdminPw,  setNewAdminPw]  = useState('');
+  const [pwSaving,    setPwSaving]    = useState(false);
+  const [pwError,     setPwError]     = useState(null);
+  const [pwSuccess,   setPwSuccess]   = useState(null);
+
   const loadDash = useCallback(async () => {
     try {
       setDashError(null);
@@ -138,6 +147,34 @@ export default function AdminDashboard({ onLogout }) {
     } finally {
       setStaffSaving(false);
     }
+  }
+
+  async function handleChangeAgentPw() {
+    const pw = newAgentPw.trim();
+    if (!pw) return;
+    setPwSaving(true); setPwError(null); setPwSuccess(null);
+    try {
+      const data = await fetchAdmin('change_agent_password', { newPassword: pw });
+      if (data.error) { setPwError(data.error); return; }
+      setPwSuccess('Staff login password updated successfully.');
+      setNewAgentPw('');
+    } catch (e) { setPwError(e.message); }
+    finally { setPwSaving(false); }
+  }
+
+  async function handleChangeAdminPw() {
+    const pw = newAdminPw.trim();
+    if (!pw) return;
+    if (!window.confirm('Change admin password? You will be logged out and must sign in with the new password.')) return;
+    setPwSaving(true); setPwError(null); setPwSuccess(null);
+    try {
+      const data = await fetchAdmin('change_admin_password', { newPassword: pw });
+      if (data.error) { setPwError(data.error); return; }
+      // Clear session so admin must re-authenticate with the new password
+      sessionStorage.clear();
+      window.location.reload();
+    } catch (e) { setPwError(e.message); }
+    finally { setPwSaving(false); }
   }
 
   async function handleRangeReport() {
@@ -346,6 +383,57 @@ export default function AdminDashboard({ onLogout }) {
             </div>
           )}
         </Section>
+        {/* ── Password Management ──────────────────────────────────────────── */}
+        <Section title="🔐 Change Passwords">
+          <div className="space-y-4">
+            {/* Agent (staff) password */}
+            <div>
+              <p className="text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Staff Login Password</p>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={newAgentPw}
+                  onChange={e => { setNewAgentPw(e.target.value); setPwError(null); setPwSuccess(null); }}
+                  placeholder="New staff password"
+                  className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                <button
+                  onClick={handleChangeAgentPw}
+                  disabled={!newAgentPw.trim() || pwSaving}
+                  className="bg-blue-900 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-blue-800 disabled:opacity-40 transition-colors whitespace-nowrap"
+                >
+                  {pwSaving ? 'Saving…' : 'Update'}
+                </button>
+              </div>
+            </div>
+
+            {/* Admin password */}
+            <div>
+              <p className="text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Admin Password</p>
+              <p className="text-xs text-amber-600 mb-1.5">You will be logged out immediately and must sign in with the new password.</p>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={newAdminPw}
+                  onChange={e => { setNewAdminPw(e.target.value); setPwError(null); setPwSuccess(null); }}
+                  placeholder="New admin password"
+                  className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                <button
+                  onClick={handleChangeAdminPw}
+                  disabled={!newAdminPw.trim() || pwSaving}
+                  className="bg-red-700 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-800 disabled:opacity-40 transition-colors whitespace-nowrap"
+                >
+                  {pwSaving ? 'Saving…' : 'Update'}
+                </button>
+              </div>
+            </div>
+
+            {pwError   && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{pwError}</p>}
+            {pwSuccess && <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-xl px-3 py-2">{pwSuccess}</p>}
+          </div>
+        </Section>
+
         {/* ── Staff Management ─────────────────────────────────────────────── */}
         <Section title="👥 Manage Staff">
           {staffLoading

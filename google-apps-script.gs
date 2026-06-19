@@ -2,9 +2,19 @@
 // Callback VM System — Google Apps Script
 // ─────────────────────────────────────────────────────────────────────────────
 
-var NOTIFICATION_EMAIL = 'zotacvoicemail@gmail.com';
-var SHEET_ID           = '1ai6NZwW2Inp3ta1uj48UTQeWMwXQfOBuU0iZP8tUFEM';
-var ADMIN_KEY          = 'S26Ultr@';
+var NOTIFICATION_EMAIL   = 'zotacvoicemail@gmail.com';
+var SHEET_ID             = '1ai6NZwW2Inp3ta1uj48UTQeWMwXQfOBuU0iZP8tUFEM';
+var DEFAULT_ADMIN_KEY    = 'S26Ultr@';
+var DEFAULT_AGENT_KEY    = 'farmoutusavmtool';
+
+// Returns current passwords from PropertiesService, falling back to hard-coded defaults.
+function getCurrentPasswords() {
+  var props = PropertiesService.getScriptProperties();
+  return {
+    admin: props.getProperty('ADMIN_PASSWORD') || DEFAULT_ADMIN_KEY,
+    agent: props.getProperty('AGENT_PASSWORD') || DEFAULT_AGENT_KEY,
+  };
+}
 
 function doPost(e) { return doGet(e); }
 
@@ -22,6 +32,10 @@ function doGet(e) {
       return ContentService
         .createTextOutput(JSON.stringify({ success: true }))
         .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.type === 'validate_login') {
+      return handleValidateLogin(data);
     }
 
     if (data.type === 'admin') {
@@ -314,6 +328,22 @@ function updateDailySummary(ss, data) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Login validation — JSONP; returns { role: 'admin' | 'agent' | null }
+// ─────────────────────────────────────────────────────────────────────────────
+
+function handleValidateLogin(data) {
+  var cb       = data.callback || 'callback';
+  var password = data.password || '';
+  var pws      = getCurrentPasswords();
+  var role     = null;
+  if (password === pws.admin) role = 'admin';
+  else if (password === pws.agent) role = 'agent';
+  return ContentService
+    .createTextOutput(cb + '(' + JSON.stringify({ role: role }) + ')')
+    .setMimeType(ContentService.MimeType.JAVASCRIPT);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Staff List — public read, admin-only write
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -395,7 +425,8 @@ function handleAdminRequest(data) {
       .setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
 
-  if (data.adminKey !== ADMIN_KEY) return jsonp({ error: 'Unauthorized' });
+  var currentPws = getCurrentPasswords();
+  if (data.adminKey !== currentPws.admin) return jsonp({ error: 'Unauthorized' });
 
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
@@ -404,6 +435,21 @@ function handleAdminRequest(data) {
     if (data.action === 'get_staff')    return jsonp({ names: getStaffNames(ss) });
     if (data.action === 'add_staff')    return jsonp(addStaffMember(ss, data.name));
     if (data.action === 'remove_staff') return jsonp(removeStaffMember(ss, data.name));
+
+    if (data.action === 'change_agent_password') {
+      var newAgentPw = String(data.newPassword || '').trim();
+      if (newAgentPw.length < 4) return jsonp({ error: 'Password must be at least 4 characters' });
+      PropertiesService.getScriptProperties().setProperty('AGENT_PASSWORD', newAgentPw);
+      return jsonp({ success: true });
+    }
+
+    if (data.action === 'change_admin_password') {
+      var newAdminPw = String(data.newPassword || '').trim();
+      if (newAdminPw.length < 4) return jsonp({ error: 'Password must be at least 4 characters' });
+      PropertiesService.getScriptProperties().setProperty('ADMIN_PASSWORD', newAdminPw);
+      return jsonp({ success: true });
+    }
+
     return jsonp({ error: 'Unknown action' });
   } catch (err) {
     return jsonp({ error: err.toString() });

@@ -26,31 +26,56 @@ function useInstallPrompt() {
   return { canInstall: !!prompt && !dismissed, install, dismiss: () => setDismissed(true) };
 }
 
-const PASSWORD        = 'farmoutusavmtool';
-const ADMIN_PASSWORD  = 'S26Ultr@';
-const SESSION_KEY     = 'cwc_auth';
-const DEVICE_KEY      = 'cwc_device';
+const SCRIPT_URL        = 'https://script.google.com/macros/s/AKfycbwhExqtU7hEphKCNP7WWUkp5sAQMFEPsdd1lPgUO1O7cXyEFUf4ecHB2OuXNoWb8lUs/exec';
+const SESSION_KEY       = 'cwc_auth';
+const DEVICE_KEY        = 'cwc_device';
 const ADMIN_SESSION_KEY = 'cwc_admin';
 
+function validateLogin(password) {
+  return new Promise((resolve, reject) => {
+    const cb = '__login_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    const tid = setTimeout(() => { cleanup(); reject(new Error('timeout')); }, 12000);
+    const script = document.createElement('script');
+    function cleanup() { clearTimeout(tid); delete window[cb]; script.remove(); }
+    window[cb] = (data) => { cleanup(); resolve(data); };
+    script.onerror = () => { cleanup(); reject(new Error('network')); };
+    const params = new URLSearchParams({ type: 'validate_login', password, callback: cb, _t: Date.now() });
+    script.src = SCRIPT_URL + '?' + params;
+    document.head.appendChild(script);
+  });
+}
+
 function PasswordGate({ onUnlock, onAdminUnlock }) {
-  const [input,  setInput]  = useState('');
-  const [error,  setError]  = useState(false);
-  const [device, setDevice] = useState(() =>
+  const [input,   setInput]   = useState('');
+  const [error,   setError]   = useState(null); // null | 'wrong' | 'network' | 'timeout'
+  const [loading, setLoading] = useState(false);
+  const [device,  setDevice]  = useState(() =>
     window.innerWidth < 600 ? 'mobile' : 'pc'
   );
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
-    if (input === ADMIN_PASSWORD) {
-      sessionStorage.setItem(ADMIN_SESSION_KEY, '1');
-      onAdminUnlock();
-    } else if (input === PASSWORD) {
-      sessionStorage.setItem(SESSION_KEY, '1');
-      sessionStorage.setItem(DEVICE_KEY, device);
-      onUnlock(device);
-    } else {
-      setError(true);
-      setInput('');
+    if (!input.trim() || loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await validateLogin(input);
+      if (result.role === 'admin') {
+        sessionStorage.setItem(ADMIN_SESSION_KEY, '1');
+        sessionStorage.setItem('cwc_admin_key', input);
+        onAdminUnlock();
+      } else if (result.role === 'agent') {
+        sessionStorage.setItem(SESSION_KEY, '1');
+        sessionStorage.setItem(DEVICE_KEY, device);
+        onUnlock(device);
+      } else {
+        setError('wrong');
+        setInput('');
+      }
+    } catch (err) {
+      setError(err.message === 'timeout' ? 'timeout' : 'network');
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -90,23 +115,25 @@ function PasswordGate({ onUnlock, onAdminUnlock }) {
             <input
               type="password"
               value={input}
-              onChange={e => { setInput(e.target.value); setError(false); }}
+              onChange={e => { setInput(e.target.value); setError(null); }}
               autoFocus
+              disabled={loading}
               placeholder="Enter password"
               className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm
-                         focus:outline-none focus:ring-2 focus:ring-orange-500"
+                         focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-60"
             />
-            {error && (
-              <p className="text-red-500 text-xs mt-1">Incorrect password. Try again.</p>
-            )}
+            {error === 'wrong'   && <p className="text-red-500 text-xs mt-1">Incorrect password. Try again.</p>}
+            {error === 'timeout' && <p className="text-red-500 text-xs mt-1">Request timed out. Please try again.</p>}
+            {error === 'network' && <p className="text-red-500 text-xs mt-1">Unable to connect. Check your internet connection.</p>}
           </div>
 
           <button
             type="submit"
+            disabled={loading}
             className="w-full bg-orange-500 text-white py-3 rounded-xl text-sm font-semibold
-                       hover:bg-orange-600 active:bg-orange-700 transition-colors"
+                       hover:bg-orange-600 active:bg-orange-700 transition-colors disabled:opacity-60"
           >
-            Unlock
+            {loading ? 'Verifying…' : 'Unlock'}
           </button>
         </form>
       </div>

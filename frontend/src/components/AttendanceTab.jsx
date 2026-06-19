@@ -126,6 +126,7 @@ export default function AttendanceTab({ isMobile }) {
   const [pendingOther,   setPendingOther]   = useState(false);
   const [otherReason,    setOtherReason]    = useState('');
   const [lastClockOut,   setLastClockOut]   = useState(null);
+  const [photoRequired,  setPhotoRequired]  = useState(false);
   const [tick,           setTick]           = useState(0);
   const [breakAlert,     setBreakAlert]     = useState(null); // null | 'warning' | 'exceeded'
   const breakWarnedRef    = useRef(false);
@@ -190,6 +191,8 @@ export default function AttendanceTab({ isMobile }) {
 
   async function handleClockIn() {
     if (!agentName.trim()) { alert('Enter your name first.'); return; }
+    if (!screenshot) { setPhotoRequired(true); return; }
+    setPhotoRequired(false);
     setStatus('sending');
     const [info, b64] = await Promise.all([
       getClientInfo(),
@@ -258,6 +261,7 @@ export default function AttendanceTab({ isMobile }) {
     const file = e.target.files[0];
     if (!file) return;
     setScreenshot({ file, preview: URL.createObjectURL(file) });
+    setPhotoRequired(false);
   }
 
   const wrapCls = `space-y-3 ${isMobile ? '' : 'max-w-lg mx-auto pt-1'}`;
@@ -313,17 +317,25 @@ export default function AttendanceTab({ isMobile }) {
 
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">
-            Kayako + Vonage login screenshot <span className="text-gray-400 font-normal">(optional)</span>
+            Kayako + VoIP app screenshot <span className="text-red-500 font-normal">*required</span>
           </label>
-          <label className="flex items-center gap-2 cursor-pointer border-2 border-dashed border-gray-200 rounded-xl p-3 hover:border-orange-300 transition-colors">
+          <label className={`flex items-center gap-2 cursor-pointer border-2 border-dashed rounded-xl p-3 transition-colors ${
+            photoRequired ? 'border-red-400 bg-red-50 hover:border-red-500' : 'border-gray-200 hover:border-orange-300'
+          }`}>
             <span className="text-xl">📎</span>
-            <span className="text-xs text-gray-500 truncate">
+            <span className={`text-xs truncate ${photoRequired ? 'text-red-500' : 'text-gray-500'}`}>
               {screenshot ? screenshot.file.name : 'Click to attach file or photo'}
             </span>
             <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
           </label>
           {screenshot && (
             <img src={screenshot.preview} alt="Preview" className="mt-2 rounded-xl w-full max-h-48 object-contain bg-gray-50 border border-gray-200" />
+          )}
+          {photoRequired && (
+            <div className="mt-2 bg-red-50 border border-red-300 rounded-xl px-3 py-2.5">
+              <p className="text-sm font-semibold text-red-600">📸 Photo required</p>
+              <p className="text-xs text-red-500 mt-0.5">A photo of your Kayako and VoIP app should be attached.</p>
+            </div>
           )}
         </div>
 
