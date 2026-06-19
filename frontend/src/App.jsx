@@ -120,7 +120,7 @@ export default function App() {
   const isMobile = device === 'mobile';
   const { canInstall, install, dismiss } = useInstallPrompt();
   const loggingOut = useRef(false);
-  const [activeTab, setActiveTab] = useState('checker');
+  const [activeTab, setActiveTab] = useState('attendance');
 
   // Ask "are you sure?" when the user tries to close the tab/window
   useEffect(() => {
@@ -179,8 +179,8 @@ export default function App() {
         {/* Tab Bar */}
         <div className="flex bg-white rounded-2xl shadow mb-3 overflow-hidden border border-gray-100">
           {[
-            { id: 'checker',    label: '📞 Callback Checker' },
             { id: 'attendance', label: '🕐 Attendance'       },
+            { id: 'checker',    label: '📞 Callback Checker' },
           ].map(tab => (
             <button
               key={tab.id}
