@@ -44,7 +44,7 @@ function doGet(e) {
     sheet.appendRow([
       Utilities.formatDate(new Date(), 'Asia/Manila', 'MM/dd/yyyy hh:mm:ss a'),
       data.customerName  || '',
-      data.customerPhone || '',
+      "'" + (data.customerPhone || ''),
       data.customerTime  || '',
       data.agentName     || '',
       data.agentTime     || '',

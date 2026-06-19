@@ -32,9 +32,11 @@ export default function CallbackNoteForm({ result }) {
       callDetails: callDetails.trim(),
     };
     try {
-      await fetch(SCRIPT_URL + '?' + new URLSearchParams(payload).toString(), {
+      const params = new URLSearchParams({ ...payload, _t: Date.now() });
+      await fetch(SCRIPT_URL + '?' + params.toString(), {
         method: 'GET',
         mode: 'no-cors',
+        cache: 'no-store',
       });
       localStorage.setItem('cwc_agent_name', agentName.trim());
       setStatus('done');

@@ -8,6 +8,15 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['farmoutusalogo.png', 'icon.svg'],
+      workbox: {
+        runtimeCaching: [
+          {
+            // Never cache Apps Script requests — each submission must hit the network
+            urlPattern: /^https:\/\/script\.google\.com\/.*/i,
+            handler: 'NetworkOnly',
+          },
+        ],
+      },
       manifest: {
         name: 'Callback VM System',
         short_name: 'CallbackVM',
