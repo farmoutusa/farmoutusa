@@ -7,13 +7,56 @@ var SHEET_ID             = '1ai6NZwW2Inp3ta1uj48UTQeWMwXQfOBuU0iZP8tUFEM';
 var DEFAULT_ADMIN_KEY    = 'S26Ultr@';
 var DEFAULT_AGENT_KEY    = 'farmoutusavmtool';
 
-// Returns current passwords from PropertiesService, falling back to hard-coded defaults.
-function getCurrentPasswords() {
-  var props = PropertiesService.getScriptProperties();
-  return {
-    admin: props.getProperty('ADMIN_PASSWORD') || DEFAULT_ADMIN_KEY,
-    agent: props.getProperty('AGENT_PASSWORD') || DEFAULT_AGENT_KEY,
-  };
+// ── Settings tab helpers ──────────────────────────────────────────────────────
+// Passwords are stored in a hidden "Settings" sheet tab so no extra OAuth
+// scope authorization is needed (PropertiesService requires a separate step).
+
+function getOrCreateSettingsSheet(ss) {
+  var sheet = ss.getSheetByName('Settings');
+  if (!sheet) {
+    sheet = ss.insertSheet('Settings');
+    sheet.appendRow(['Key', 'Value']);
+    sheet.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#1e3a8a').setFontColor('#ffffff');
+    sheet.setFrozenRows(1);
+    sheet.hideSheet();
+  }
+  return sheet;
+}
+
+function getSetting(ss, key) {
+  var sheet = ss.getSheetByName('Settings');
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]) === key) return String(rows[i][1]);
+  }
+  return null;
+}
+
+function setSetting(ss, key, value) {
+  var sheet = getOrCreateSettingsSheet(ss);
+  if (sheet.getLastRow() > 1) {
+    var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][0]) === key) {
+        sheet.getRange(i + 2, 2).setValue(value);
+        return;
+      }
+    }
+  }
+  sheet.appendRow([key, value]);
+}
+
+// Returns current passwords from the Settings sheet, falling back to hard-coded defaults.
+function getCurrentPasswords(ss) {
+  try {
+    return {
+      admin: getSetting(ss, 'ADMIN_PASSWORD') || DEFAULT_ADMIN_KEY,
+      agent: getSetting(ss, 'AGENT_PASSWORD') || DEFAULT_AGENT_KEY,
+    };
+  } catch (e) {
+    return { admin: DEFAULT_ADMIN_KEY, agent: DEFAULT_AGENT_KEY };
+  }
 }
 
 function doPost(e) { return doGet(e); }
@@ -338,8 +381,14 @@ function updateDailySummary(ss, data) {
 function handleValidateLogin(data) {
   var cb       = data.callback || 'callback';
   var password = data.password || '';
-  var pws      = getCurrentPasswords();
-  var role     = null;
+  var pws;
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    pws = getCurrentPasswords(ss);
+  } catch (e) {
+    pws = { admin: DEFAULT_ADMIN_KEY, agent: DEFAULT_AGENT_KEY };
+  }
+  var role = null;
   if (password === pws.admin) role = 'admin';
   else if (password === pws.agent) role = 'agent';
   return ContentService
@@ -429,11 +478,11 @@ function handleAdminRequest(data) {
       .setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
 
-  var currentPws = getCurrentPasswords();
-  if (data.adminKey !== currentPws.admin) return jsonp({ error: 'Unauthorized' });
-
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
+    var currentPws = getCurrentPasswords(ss);
+    if (data.adminKey !== currentPws.admin) return jsonp({ error: 'Unauthorized' });
+
     if (data.action === 'dashboard')    return jsonp(getAdminDashboard(ss));
     if (data.action === 'range')        return jsonp(getAdminRange(ss, data.from, data.to));
     if (data.action === 'get_staff')    return jsonp({ names: getStaffNames(ss) });
@@ -443,14 +492,14 @@ function handleAdminRequest(data) {
     if (data.action === 'change_agent_password') {
       var newAgentPw = String(data.newPassword || '').trim();
       if (newAgentPw.length < 4) return jsonp({ error: 'Password must be at least 4 characters' });
-      PropertiesService.getScriptProperties().setProperty('AGENT_PASSWORD', newAgentPw);
+      setSetting(ss, 'AGENT_PASSWORD', newAgentPw);
       return jsonp({ success: true });
     }
 
     if (data.action === 'change_admin_password') {
       var newAdminPw = String(data.newPassword || '').trim();
       if (newAdminPw.length < 4) return jsonp({ error: 'Password must be at least 4 characters' });
-      PropertiesService.getScriptProperties().setProperty('ADMIN_PASSWORD', newAdminPw);
+      setSetting(ss, 'ADMIN_PASSWORD', newAdminPw);
       return jsonp({ success: true });
     }
 
