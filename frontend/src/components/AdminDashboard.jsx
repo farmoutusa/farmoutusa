@@ -90,6 +90,11 @@ export default function AdminDashboard({ onLogout }) {
   const [pwError,     setPwError]     = useState(null);
   const [pwSuccess,   setPwSuccess]   = useState(null);
 
+  // Login log
+  const [loginLog,        setLoginLog]        = useState(null);
+  const [loginLogLoading, setLoginLogLoading] = useState(false);
+  const [loginLogError,   setLoginLogError]   = useState(null);
+
   const loadDash = useCallback(async () => {
     try {
       setDashError(null);
@@ -147,6 +152,16 @@ export default function AdminDashboard({ onLogout }) {
     } finally {
       setStaffSaving(false);
     }
+  }
+
+  async function handleLoadLoginLog() {
+    setLoginLogLoading(true); setLoginLogError(null);
+    try {
+      const data = await fetchAdmin('get_login_log');
+      if (data.error) { setLoginLogError(data.error); return; }
+      setLoginLog(data.entries || []);
+    } catch (e) { setLoginLogError(e.message); }
+    finally { setLoginLogLoading(false); }
   }
 
   async function handleChangeAgentPw() {
@@ -479,6 +494,47 @@ export default function AdminDashboard({ onLogout }) {
               {staffSaving ? 'Saving…' : '+ Add'}
             </button>
           </div>
+        </Section>
+
+        {/* ── Login Log ────────────────────────────────────────────────────── */}
+        <Section title="🔍 Login Attempt Log">
+          <p className="text-xs text-gray-400">Shows the last 50 login attempts — who typed what and whether it succeeded.</p>
+          <button
+            onClick={handleLoadLoginLog}
+            disabled={loginLogLoading}
+            className="bg-gray-800 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-gray-700 disabled:opacity-40 transition-colors"
+          >
+            {loginLogLoading ? 'Loading…' : loginLog ? '↻ Refresh' : 'Load Log'}
+          </button>
+
+          {loginLogError && <p className="text-xs text-red-500 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{loginLogError}</p>}
+
+          {loginLog && (
+            loginLog.length === 0
+              ? <p className="text-sm text-gray-400">No login attempts recorded yet.</p>
+              : (
+                <div className="overflow-x-auto -mx-1">
+                  <table className="w-full text-sm min-w-[420px]">
+                    <thead>
+                      <tr className="text-xs text-gray-400 border-b border-gray-100">
+                        <th className="text-left pb-2 font-medium px-1">Time (PH)</th>
+                        <th className="text-left pb-2 font-medium px-1">Result</th>
+                        <th className="text-left pb-2 font-medium px-1">Password Typed</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {loginLog.map((e, i) => (
+                        <tr key={i} className={e.result.startsWith('❌') ? 'bg-red-50' : ''}>
+                          <td className="py-2 text-xs text-gray-500 px-1 whitespace-nowrap">{e.time}</td>
+                          <td className="py-2 text-xs font-semibold px-1 whitespace-nowrap">{e.result}</td>
+                          <td className="py-2 text-xs font-mono px-1">{e.password}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+          )}
         </Section>
 
       </main>

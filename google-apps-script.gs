@@ -381,9 +381,9 @@ function updateDailySummary(ss, data) {
 function handleValidateLogin(data) {
   var cb       = data.callback || 'callback';
   var password = data.password || '';
-  var pws;
+  var ss, pws;
   try {
-    var ss = SpreadsheetApp.openById(SHEET_ID);
+    ss  = SpreadsheetApp.openById(SHEET_ID);
     pws = getCurrentPasswords(ss);
   } catch (e) {
     pws = { admin: DEFAULT_ADMIN_KEY, agent: DEFAULT_AGENT_KEY };
@@ -391,9 +391,32 @@ function handleValidateLogin(data) {
   var role = null;
   if (password === pws.admin) role = 'admin';
   else if (password === pws.agent) role = 'agent';
+
+  // Log every attempt so admin can audit who typed what and when
+  if (ss) {
+    try { logLoginAttempt(ss, password, role); } catch (e) {}
+  }
+
   return ContentService
     .createTextOutput(cb + '(' + JSON.stringify({ role: role }) + ')')
     .setMimeType(ContentService.MimeType.JAVASCRIPT);
+}
+
+function logLoginAttempt(ss, password, role) {
+  var sheet = ss.getSheetByName('Login Log');
+  if (!sheet) {
+    sheet = ss.insertSheet('Login Log');
+    var hdrs = ['Timestamp (PH)', 'Result', 'Password Entered'];
+    sheet.appendRow(hdrs);
+    sheet.getRange(1, 1, 1, hdrs.length)
+      .setFontWeight('bold').setBackground('#1e3a8a').setFontColor('#ffffff');
+    sheet.setFrozenRows(1);
+  }
+  sheet.appendRow([
+    Utilities.formatDate(new Date(), 'Asia/Manila', 'MM/dd/yyyy hh:mm:ss a'),
+    role ? '✅ ' + role : '❌ failed',
+    password,
+  ]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -501,6 +524,20 @@ function handleAdminRequest(data) {
       if (newAdminPw.length < 4) return jsonp({ error: 'Password must be at least 4 characters' });
       setSetting(ss, 'ADMIN_PASSWORD', newAdminPw);
       return jsonp({ success: true });
+    }
+
+    if (data.action === 'get_login_log') {
+      var logSheet = ss.getSheetByName('Login Log');
+      if (!logSheet || logSheet.getLastRow() < 2) return jsonp({ entries: [] });
+      var lastRow = logSheet.getLastRow();
+      // Return latest 50 entries, newest first
+      var startRow = Math.max(2, lastRow - 49);
+      var numRows  = lastRow - startRow + 1;
+      var rows = logSheet.getRange(startRow, 1, numRows, 3).getValues().reverse();
+      var entries = rows.map(function(r) {
+        return { time: fmtSheetVal(r[0]), result: String(r[1]), password: String(r[2]) };
+      });
+      return jsonp({ entries: entries });
     }
 
     return jsonp({ error: 'Unknown action' });
