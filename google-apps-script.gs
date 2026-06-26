@@ -580,6 +580,11 @@ function getAdminDashboard(ss) {
     for (var i = 0; i < rows.length; i++) {
       var r      = rows[i];
       var epoch  = Number(r[10]);
+      if (!epoch) {
+        // Fallback for rows written before the epoch column was added
+        var tsDate = r[0] instanceof Date ? r[0] : new Date(String(r[0]));
+        epoch = isNaN(tsDate.getTime()) ? 0 : tsDate.getTime();
+      }
       if (!epoch || epoch < cutoffMs) continue;
       var agent   = String(r[1]);
       var action  = String(r[2]);
