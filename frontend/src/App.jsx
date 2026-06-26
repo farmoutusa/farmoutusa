@@ -37,7 +37,17 @@ const ADMIN_SESSION_KEY = 'cwc_admin';
 const FALLBACK_ADMIN_PW = 'S26Ultr@';
 const FALLBACK_AGENT_PW = 'farmoutusavmtool';
 
-function validateLogin(password) {
+async function fetchLoginIp() {
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 2000);
+    const d = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal, cache: 'no-store' }).then(r => r.json());
+    clearTimeout(tid);
+    return d.ip || '';
+  } catch { return ''; }
+}
+
+function validateLogin(password, ip) {
   return new Promise((resolve, reject) => {
     const cb = '__login_' + Date.now() + '_' + Math.random().toString(36).slice(2);
     const tid = setTimeout(() => { cleanup(); reject(new Error('timeout')); }, 7000);
@@ -45,7 +55,7 @@ function validateLogin(password) {
     function cleanup() { clearTimeout(tid); delete window[cb]; script.remove(); }
     window[cb] = (data) => { cleanup(); resolve(data); };
     script.onerror = () => { cleanup(); reject(new Error('network')); };
-    const params = new URLSearchParams({ type: 'validate_login', password, callback: cb, _t: Date.now() });
+    const params = new URLSearchParams({ type: 'validate_login', password, ip: ip || '', callback: cb, _t: Date.now() });
     script.src = SCRIPT_URL + '?' + params;
     document.head.appendChild(script);
   });
@@ -64,9 +74,10 @@ function PasswordGate({ onUnlock, onAdminUnlock }) {
     if (!input.trim() || loading) return;
     setLoading(true);
     setError(null);
+    const ip = await fetchLoginIp();
     let role = null;
     try {
-      const result = await validateLogin(input);
+      const result = await validateLogin(input, ip);
       role = result.role; // 'admin' | 'agent' | null
     } catch {
       // GAS unreachable or not yet redeployed — check built-in fallback

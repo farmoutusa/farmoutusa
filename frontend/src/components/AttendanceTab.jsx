@@ -64,10 +64,20 @@ async function getClientInfo() {
 
   let ip = 'Unknown', city = '', country = '', isp = '';
   try {
-    const d = await (await fetch('https://ipapi.co/json/', { cache: 'no-store' })).json();
-    ip = d.ip || 'Unknown'; city = d.city || ''; country = d.country_name || ''; isp = d.org || '';
+    // ipinfo.io has more accurate city-level data for Philippine ISPs than ipapi.co
+    const d = await (await fetch('https://ipinfo.io/json', { cache: 'no-store' })).json();
+    ip      = d.ip  || 'Unknown';
+    city    = [d.city, d.region].filter(Boolean).join(', ');
+    country = d.country || '';
+    isp     = d.org || '';
   } catch {
-    try { ip = (await (await fetch('https://api.ipify.org?format=json')).json()).ip || 'Unknown'; } catch {}
+    try {
+      // fallback to ipapi.co
+      const d = await (await fetch('https://ipapi.co/json/', { cache: 'no-store' })).json();
+      ip = d.ip || 'Unknown'; city = d.city || ''; country = d.country_name || ''; isp = d.org || '';
+    } catch {
+      try { ip = (await (await fetch('https://api.ipify.org?format=json')).json()).ip || 'Unknown'; } catch {}
+    }
   }
   return { ip, city, country, isp, deviceType, os, browser, screenRes };
 }

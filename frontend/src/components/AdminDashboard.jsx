@@ -509,32 +509,64 @@ export default function AdminDashboard({ onLogout }) {
 
           {loginLogError && <p className="text-xs text-red-500 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{loginLogError}</p>}
 
-          {loginLog && (
-            loginLog.length === 0
+          {loginLog && (() => {
+            // Build IP → list of row indices for cross-reference
+            const ipMap = {};
+            loginLog.forEach((e, i) => {
+              if (!e.ip) return;
+              if (!ipMap[e.ip]) ipMap[e.ip] = [];
+              ipMap[e.ip].push(i);
+            });
+
+            return loginLog.length === 0
               ? <p className="text-sm text-gray-400">No login attempts recorded yet.</p>
               : (
                 <div className="overflow-x-auto -mx-1">
-                  <table className="w-full text-sm min-w-[420px]">
+                  <table className="w-full text-sm min-w-[560px]">
                     <thead>
                       <tr className="text-xs text-gray-400 border-b border-gray-100">
                         <th className="text-left pb-2 font-medium px-1">Time (PH)</th>
                         <th className="text-left pb-2 font-medium px-1">Result</th>
                         <th className="text-left pb-2 font-medium px-1">Password Typed</th>
+                        <th className="text-left pb-2 font-medium px-1">IP Address</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                      {loginLog.map((e, i) => (
-                        <tr key={i} className={e.result.startsWith('❌') ? 'bg-red-50' : ''}>
-                          <td className="py-2 text-xs text-gray-500 px-1 whitespace-nowrap">{e.time}</td>
-                          <td className="py-2 text-xs font-semibold px-1 whitespace-nowrap">{e.result}</td>
-                          <td className="py-2 text-xs font-mono px-1">{e.password}</td>
-                        </tr>
-                      ))}
+                      {loginLog.map((e, i) => {
+                        const isFailed = e.result.startsWith('❌');
+                        const sameIpRows = e.ip ? (ipMap[e.ip] || []).filter(j => j !== i) : [];
+                        return (
+                          <tr key={i} className={isFailed ? 'bg-red-50' : ''}>
+                            <td className="py-2 text-xs text-gray-500 px-1 whitespace-nowrap">{e.time}</td>
+                            <td className="py-2 text-xs font-semibold px-1 whitespace-nowrap">{e.result}</td>
+                            <td className="py-2 text-xs font-mono px-1">{e.password}</td>
+                            <td className="py-2 text-xs px-1">
+                              {e.ip ? (
+                                <div>
+                                  <span className="font-mono text-gray-600">{e.ip}</span>
+                                  {sameIpRows.length > 0 && (
+                                    <div className="mt-0.5 text-gray-400 text-[10px] leading-tight">
+                                      Same IP: {sameIpRows.slice(0, 3).map(j => (
+                                        <span key={j} className={`inline-block mr-1 ${loginLog[j].result.startsWith('❌') ? 'text-red-400' : 'text-green-600'}`}>
+                                          {loginLog[j].result}
+                                        </span>
+                                      ))}
+                                      {sameIpRows.length > 3 && <span>+{sameIpRows.length - 3} more</span>}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
-              )
-          )}
+              );
+          })()}
         </Section>
 
       </main>

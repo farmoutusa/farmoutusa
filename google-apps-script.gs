@@ -381,6 +381,7 @@ function updateDailySummary(ss, data) {
 function handleValidateLogin(data) {
   var cb       = data.callback || 'callback';
   var password = data.password || '';
+  var ip       = data.ip       || '';
   var ss, pws;
   try {
     ss  = SpreadsheetApp.openById(SHEET_ID);
@@ -392,9 +393,8 @@ function handleValidateLogin(data) {
   if (password === pws.admin) role = 'admin';
   else if (password === pws.agent) role = 'agent';
 
-  // Log every attempt so admin can audit who typed what and when
   if (ss) {
-    try { logLoginAttempt(ss, password, role); } catch (e) {}
+    try { logLoginAttempt(ss, password, role, ip); } catch (e) {}
   }
 
   return ContentService
@@ -402,11 +402,11 @@ function handleValidateLogin(data) {
     .setMimeType(ContentService.MimeType.JAVASCRIPT);
 }
 
-function logLoginAttempt(ss, password, role) {
+function logLoginAttempt(ss, password, role, ip) {
   var sheet = ss.getSheetByName('Login Log');
   if (!sheet) {
     sheet = ss.insertSheet('Login Log');
-    var hdrs = ['Timestamp (PH)', 'Result', 'Password Entered'];
+    var hdrs = ['Timestamp (PH)', 'Result', 'Password Entered', 'IP Address'];
     sheet.appendRow(hdrs);
     sheet.getRange(1, 1, 1, hdrs.length)
       .setFontWeight('bold').setBackground('#1e3a8a').setFontColor('#ffffff');
@@ -416,6 +416,7 @@ function logLoginAttempt(ss, password, role) {
     Utilities.formatDate(new Date(), 'Asia/Manila', 'MM/dd/yyyy hh:mm:ss a'),
     role ? '✅ ' + role : '❌ failed',
     password,
+    ip || '',
   ]);
 }
 
@@ -533,9 +534,9 @@ function handleAdminRequest(data) {
       // Return latest 50 entries, newest first
       var startRow = Math.max(2, lastRow - 49);
       var numRows  = lastRow - startRow + 1;
-      var rows = logSheet.getRange(startRow, 1, numRows, 3).getValues().reverse();
+      var rows = logSheet.getRange(startRow, 1, numRows, 4).getValues().reverse();
       var entries = rows.map(function(r) {
-        return { time: fmtSheetVal(r[0]), result: String(r[1]), password: String(r[2]) };
+        return { time: fmtSheetVal(r[0]), result: String(r[1]), password: String(r[2]), ip: r[3] ? String(r[3]) : '' };
       });
       return jsonp({ entries: entries });
     }
@@ -563,23 +564,25 @@ function getAdminDashboard(ss) {
   var agentMap = {};
 
   if (attSheet && attSheet.getLastRow() > 1) {
+    var nowMs    = new Date().getTime();
+    // 36-hour window so night-shift workers who clocked IN yesterday are included
+    var cutoffMs = nowMs - 36 * 60 * 60 * 1000;
     var rows = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 11).getValues();
     for (var i = 0; i < rows.length; i++) {
-      var r   = rows[i];
-      var rDate   = String(r[0]).substring(0, 10);
-      if (rDate !== today) continue;
+      var r      = rows[i];
+      var epoch  = Number(r[10]);
+      if (!epoch || epoch < cutoffMs) continue;
       var agent   = String(r[1]);
       var action  = String(r[2]);
       var details = String(r[3]);
-      var epoch   = Number(r[10]);
       if (!agentMap[agent]) {
         agentMap[agent] = { name: agent, status: 'unknown', clockInTime: '', breakType: '', breakStart: 0, totalBreakMs: 0 };
       }
       var a = agentMap[agent];
-      if (action === 'CLOCK_IN')   { a.status = 'working';   a.clockInTime = String(r[0]); a.totalBreakMs = 0; a.breakStart = 0; }
-      if (action === 'BREAK_START') { a.status = 'on_break'; a.breakType = details.split(/[\s—|]/)[0].trim(); a.breakStart = epoch; }
-      if (action === 'RESUME')     { a.status = 'working';   if (a.breakStart > 0) { a.totalBreakMs += epoch - a.breakStart; } a.breakStart = 0; a.breakType = ''; }
-      if (action === 'CLOCK_OUT')  { a.status = 'clocked_out'; if (a.breakStart > 0) { a.totalBreakMs += epoch - a.breakStart; } a.breakStart = 0; }
+      if (action === 'CLOCK_IN')    { a.status = 'working';     a.clockInTime = fmtSheetVal(r[0]); a.totalBreakMs = 0; a.breakStart = 0; }
+      if (action === 'BREAK_START') { a.status = 'on_break';    a.breakType = details.split(/[\s—|]/)[0].trim(); a.breakStart = epoch; }
+      if (action === 'RESUME')      { a.status = 'working';     if (a.breakStart > 0) { a.totalBreakMs += epoch - a.breakStart; } a.breakStart = 0; a.breakType = ''; }
+      if (action === 'CLOCK_OUT')   { a.status = 'clocked_out'; if (a.breakStart > 0) { a.totalBreakMs += epoch - a.breakStart; } a.breakStart = 0; }
     }
   }
 
