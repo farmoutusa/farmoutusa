@@ -71,9 +71,16 @@ function doGet(e) {
     var data = e.parameter;
 
     if (data.type === 'attendance') {
-      handleAttendance(data);
+      var attResult = handleAttendance(data);
+      // If a callback was provided, return JSONP so the browser can confirm receipt.
+      // CLOCK_IN uses this for confirmed delivery; other actions remain fire-and-forget.
+      if (data.callback) {
+        return ContentService
+          .createTextOutput(data.callback + '(' + JSON.stringify(attResult || { success: true }) + ')')
+          .setMimeType(ContentService.MimeType.JAVASCRIPT);
+      }
       return ContentService
-        .createTextOutput(JSON.stringify({ success: true }))
+        .createTextOutput(JSON.stringify(attResult || { success: true }))
         .setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -275,6 +282,8 @@ function handleAttendance(data) {
       console.error('Clock-in email error:', mailErr.toString());
     }
   }
+
+  return { success: true, epoch: serverEpoch };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -565,8 +574,8 @@ function getAdminDashboard(ss) {
 
   if (attSheet && attSheet.getLastRow() > 1) {
     var nowMs    = new Date().getTime();
-    // 36-hour window so night-shift workers who clocked IN yesterday are included
-    var cutoffMs = nowMs - 36 * 60 * 60 * 1000;
+    // 48-hour window to capture night-shift workers who clocked IN up to 2 days ago
+    var cutoffMs = nowMs - 48 * 60 * 60 * 1000;
     var rows = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 11).getValues();
     for (var i = 0; i < rows.length; i++) {
       var r      = rows[i];

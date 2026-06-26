@@ -108,10 +108,10 @@ async function log(payload) {
   });
 }
 
-function fetchJsonp(params) {
+function fetchJsonp(params, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
     const cb = '__att_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-    const tid = setTimeout(() => { cleanup(); reject(new Error('Timeout')); }, 10000);
+    const tid = setTimeout(() => { cleanup(); reject(new Error('Timeout')); }, timeoutMs);
     const script = document.createElement('script');
     function cleanup() { clearTimeout(tid); delete window[cb]; script.remove(); }
     window[cb] = (data) => { cleanup(); resolve(data); };
@@ -210,13 +210,16 @@ export default function AttendanceTab({ isMobile }) {
     ]);
     const ts = Date.now(), phTime = fmtNow();
     try {
-      await log({
+      // 20s timeout — GAS uploads screenshot to Drive + sends email before responding
+      const result = await fetchJsonp({
         type: 'attendance', action: 'CLOCK_IN',
         agentName: agentName.trim(), timestamp: phTime, clientEpoch: ts,
         ip: info.ip, location: [info.city, info.country].filter(Boolean).join(', '),
         isp: info.isp, device: info.deviceType, os: info.os,
         browser: info.browser, screenRes: info.screenRes, screenshot: b64,
-      });
+      }, 20000);
+      if (result?.error) throw new Error(result.error);
+      // Only update local state after GAS confirmed receipt
       localStorage.setItem('cwc_agent_name', agentName.trim());
       saveAtt({ phase: 'working', agentName: agentName.trim(), clockInTs: ts, clockInPhTime: phTime, totalWorkMs: 0, workSessionStart: ts, breakStart: null, breakType: null, breakReason: '' });
       setStatus('idle');
