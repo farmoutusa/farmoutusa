@@ -209,26 +209,19 @@ export default function AttendanceTab({ isMobile }) {
       screenshot ? compressToThumb(screenshot.file) : Promise.resolve(''),
     ]);
     const ts = Date.now(), phTime = fmtNow();
-    const payload = {
-      type: 'attendance', action: 'CLOCK_IN',
-      agentName: agentName.trim(), timestamp: phTime, clientEpoch: ts,
-      ip: info.ip, location: [info.city, info.country].filter(Boolean).join(', '),
-      isp: info.isp, device: info.deviceType, os: info.os,
-      browser: info.browser, screenRes: info.screenRes, screenshot: b64,
-    };
     try {
-      // Try confirmed JSONP (requires updated GAS deployment)
-      const result = await fetchJsonp(payload, 15000);
-      if (result?.error) throw new Error(result.error);
-    } catch {
-      // JSONP not yet supported by GAS — fall back to fire-and-forget
-      try { await log(payload); } catch {}
-    }
-    // Update local state regardless — GAS received the event one way or another
-    localStorage.setItem('cwc_agent_name', agentName.trim());
-    saveAtt({ phase: 'working', agentName: agentName.trim(), clockInTs: ts, clockInPhTime: phTime, totalWorkMs: 0, workSessionStart: ts, breakStart: null, breakType: null, breakReason: '' });
-    setStatus('idle');
-    setScreenshot(null);
+      await log({
+        type: 'attendance', action: 'CLOCK_IN',
+        agentName: agentName.trim(), timestamp: phTime, clientEpoch: ts,
+        ip: info.ip, location: [info.city, info.country].filter(Boolean).join(', '),
+        isp: info.isp, device: info.deviceType, os: info.os,
+        browser: info.browser, screenRes: info.screenRes, screenshot: b64,
+      });
+      localStorage.setItem('cwc_agent_name', agentName.trim());
+      saveAtt({ phase: 'working', agentName: agentName.trim(), clockInTs: ts, clockInPhTime: phTime, totalWorkMs: 0, workSessionStart: ts, breakStart: null, breakType: null, breakReason: '' });
+      setStatus('idle');
+      setScreenshot(null);
+    } catch { setStatus('error'); }
   }
 
   async function handleBreakStart(breakType, reason) {
