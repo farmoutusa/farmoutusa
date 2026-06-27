@@ -139,6 +139,7 @@ export default function AttendanceTab({ isMobile }) {
   const [photoRequired,  setPhotoRequired]  = useState(false);
   const [tick,           setTick]           = useState(0);
   const [breakAlert,     setBreakAlert]     = useState(null); // null | 'warning' | 'exceeded'
+  const [showClockOutConfirm, setShowClockOutConfirm] = useState(false);
   const breakWarnedRef    = useRef(false);
   const breakExceededRef  = useRef(false);
 
@@ -499,10 +500,38 @@ export default function AttendanceTab({ isMobile }) {
 
         {/* Clock Out — hidden while break picker is open to prevent accidents */}
         {!showBreakPicker && (
-          <button onClick={handleClockOut} disabled={status === 'sending'}
+          <button onClick={() => setShowClockOutConfirm(true)} disabled={status === 'sending'}
             className="w-full bg-red-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-red-700 disabled:opacity-40 transition-colors">
             {status === 'sending' ? 'Logging…' : '🔴 Clock Out for the Day'}
           </button>
+        )}
+
+        {/* Clock-out confirmation overlay */}
+        {showClockOutConfirm && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-6">
+            <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+              <div className="text-center mb-4">
+                <div className="text-4xl mb-3">🔴</div>
+                <h2 className="text-lg font-bold text-gray-800">Clock Out for the Day?</h2>
+                <p className="text-sm text-gray-500 mt-1">This will end your shift and log your total hours.</p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowClockOutConfirm(false)}
+                  className="flex-1 py-3 rounded-xl border-2 border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => { setShowClockOutConfirm(false); handleClockOut(); }}
+                  disabled={status === 'sending'}
+                  className="flex-1 py-3 rounded-xl bg-red-600 text-white text-sm font-bold hover:bg-red-700 disabled:opacity-40 transition-colors"
+                >
+                  Yes, Clock Out
+                </button>
+              </div>
+            </div>
+          </div>
         )}
         {status === 'error' && <p className="text-red-500 text-xs text-center">Failed. Please try again.</p>}
       </div>
