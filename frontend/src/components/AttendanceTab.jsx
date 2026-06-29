@@ -210,16 +210,21 @@ export default function AttendanceTab({ isMobile }) {
       screenshot ? compressToThumb(screenshot.file) : Promise.resolve(''),
     ]);
     const ts = Date.now(), phTime = fmtNow();
+    const name = agentName.trim();
+    const basePayload = {
+      type: 'attendance', action: 'CLOCK_IN',
+      agentName: name, timestamp: phTime, clientEpoch: ts,
+      ip: info.ip, location: [info.city, info.country].filter(Boolean).join(', '),
+      isp: info.isp, device: info.deviceType, os: info.os,
+      browser: info.browser, screenRes: info.screenRes,
+    };
     try {
-      await log({
-        type: 'attendance', action: 'CLOCK_IN',
-        agentName: agentName.trim(), timestamp: phTime, clientEpoch: ts,
-        ip: info.ip, location: [info.city, info.country].filter(Boolean).join(', '),
-        isp: info.isp, device: info.deviceType, os: info.os,
-        browser: info.browser, screenRes: info.screenRes, screenshot: b64,
-      });
-      localStorage.setItem('cwc_agent_name', agentName.trim());
-      saveAtt({ phase: 'working', agentName: agentName.trim(), clockInTs: ts, clockInPhTime: phTime, totalWorkMs: 0, workSessionStart: ts, breakStart: null, breakType: null, breakReason: '' });
+      // JSONP confirms GAS received the event — no screenshot to keep URL short
+      await fetchJsonp(basePayload, 15000);
+      // Screenshot sent separately (fire-and-forget, supplementary)
+      if (b64) log({ ...basePayload, screenshot: b64 });
+      localStorage.setItem('cwc_agent_name', name);
+      saveAtt({ phase: 'working', agentName: name, clockInTs: ts, clockInPhTime: phTime, totalWorkMs: 0, workSessionStart: ts, breakStart: null, breakType: null, breakReason: '' });
       setStatus('idle');
       setScreenshot(null);
     } catch { setStatus('error'); }
