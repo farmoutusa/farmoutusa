@@ -71,16 +71,22 @@ function doGet(e) {
     var data = e.parameter;
 
     if (data.type === 'attendance') {
-      var attResult = handleAttendance(data);
-      // If a callback was provided, return JSONP so the browser can confirm receipt.
-      // CLOCK_IN uses this for confirmed delivery; other actions remain fire-and-forget.
+      var attResult, attErr;
+      try {
+        attResult = handleAttendance(data);
+      } catch (e) {
+        attErr = e.toString();
+      }
+      var attPayload = attErr ? { success: false, error: attErr } : (attResult || { success: true });
+      // If a callback was provided, always return JSONP (even on error) so the
+      // browser gets a definitive response instead of a silent timeout.
       if (data.callback) {
         return ContentService
-          .createTextOutput(data.callback + '(' + JSON.stringify(attResult || { success: true }) + ')')
+          .createTextOutput(data.callback + '(' + JSON.stringify(attPayload) + ')')
           .setMimeType(ContentService.MimeType.JAVASCRIPT);
       }
       return ContentService
-        .createTextOutput(JSON.stringify(attResult || { success: true }))
+        .createTextOutput(JSON.stringify(attPayload))
         .setMimeType(ContentService.MimeType.JSON);
     }
 

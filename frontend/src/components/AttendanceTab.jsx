@@ -220,7 +220,8 @@ export default function AttendanceTab({ isMobile }) {
     };
     try {
       // JSONP confirms GAS received the event — no screenshot to keep URL short
-      await fetchJsonp(basePayload, 15000);
+      const result = await fetchJsonp(basePayload, 15000);
+      if (!result || result.error) throw new Error(result?.error || 'GAS rejected the request');
       // Screenshot sent separately (fire-and-forget, supplementary)
       if (b64) log({ ...basePayload, screenshot: b64 });
       localStorage.setItem('cwc_agent_name', name);
