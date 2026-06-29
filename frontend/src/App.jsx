@@ -35,7 +35,7 @@ const ADMIN_SESSION_KEY = 'cwc_admin';
 // redeployed with the validate_login endpoint. Once GAS is redeployed, server-
 // side passwords take full priority (including any passwords changed via admin).
 const FALLBACK_ADMIN_PW = 'S26Ultr@';
-const FALLBACK_AGENT_PW = 'farmoutusavmtool';
+const FALLBACK_AGENT_PW = 'AimHigh';
 
 async function fetchLoginIp() {
   try {
