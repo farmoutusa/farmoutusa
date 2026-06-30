@@ -892,14 +892,33 @@ function handleAdminRequest(data) {
     // ── Employee Profiles admin actions ──────────────────────────────────────
     if (data.action === 'get_employee_profiles') {
       var profiles = getEmployeeProfiles(ss);
-      // Auto-add any staff list members who don't have a profile yet
-      var staffNames = getStaffNames(ss);
       var profileNames = profiles.map(function(p) { return p.name.toLowerCase(); });
+
+      // Merge from Staff List sheet
+      var staffNames = getStaffNames(ss);
       for (var si = 0; si < staffNames.length; si++) {
-        if (profileNames.indexOf(staffNames[si].toLowerCase()) === -1) {
+        if (staffNames[si] && profileNames.indexOf(staffNames[si].toLowerCase()) === -1) {
           profiles.push({ name: staffNames[si], type: 'Part-time', birthday: '', phone: '', email: '', startDate: '' });
+          profileNames.push(staffNames[si].toLowerCase());
         }
       }
+
+      // Merge from Attendance Log (last 48h) — catches agents not in Staff List
+      var attSheet2 = ss.getSheetByName('Attendance Log');
+      if (attSheet2 && attSheet2.getLastRow() > 1) {
+        var cutoff2 = new Date().getTime() - 48 * 60 * 60 * 1000;
+        var attRows2 = attSheet2.getRange(2, 1, attSheet2.getLastRow() - 1, 11).getValues();
+        for (var ai2 = 0; ai2 < attRows2.length; ai2++) {
+          var aName2 = String(attRows2[ai2][1]).trim();
+          var aEp2   = Number(attRows2[ai2][10]);
+          if (!aName2 || aEp2 < cutoff2) continue;
+          if (profileNames.indexOf(aName2.toLowerCase()) === -1) {
+            profiles.push({ name: aName2, type: 'Part-time', birthday: '', phone: '', email: '', startDate: '' });
+            profileNames.push(aName2.toLowerCase());
+          }
+        }
+      }
+
       return jsonp({ profiles: profiles });
     }
 
@@ -914,13 +933,28 @@ function handleAdminRequest(data) {
         startDate: data.startDate,
       });
       if (saveRes.success) {
-        // Return merged profiles (sheet entries + any staff list members without profiles)
+        // Return merged profiles (sheet + staff list + attendance log)
         var mergedAfterSave = saveRes.profiles || [];
-        var sNamesAfterSave = getStaffNames(ss);
         var pNamesAfterSave = mergedAfterSave.map(function(p) { return p.name.toLowerCase(); });
+        var sNamesAfterSave = getStaffNames(ss);
         for (var ms = 0; ms < sNamesAfterSave.length; ms++) {
-          if (pNamesAfterSave.indexOf(sNamesAfterSave[ms].toLowerCase()) === -1) {
+          if (sNamesAfterSave[ms] && pNamesAfterSave.indexOf(sNamesAfterSave[ms].toLowerCase()) === -1) {
             mergedAfterSave.push({ name: sNamesAfterSave[ms], type: 'Part-time', birthday: '', phone: '', email: '', startDate: '' });
+            pNamesAfterSave.push(sNamesAfterSave[ms].toLowerCase());
+          }
+        }
+        var attSheetMs = ss.getSheetByName('Attendance Log');
+        if (attSheetMs && attSheetMs.getLastRow() > 1) {
+          var cutoffMs2 = new Date().getTime() - 48 * 60 * 60 * 1000;
+          var attRowsMs = attSheetMs.getRange(2, 1, attSheetMs.getLastRow() - 1, 11).getValues();
+          for (var ams = 0; ams < attRowsMs.length; ams++) {
+            var aNm = String(attRowsMs[ams][1]).trim();
+            var aEpMs = Number(attRowsMs[ams][10]);
+            if (!aNm || aEpMs < cutoffMs2) continue;
+            if (pNamesAfterSave.indexOf(aNm.toLowerCase()) === -1) {
+              mergedAfterSave.push({ name: aNm, type: 'Part-time', birthday: '', phone: '', email: '', startDate: '' });
+              pNamesAfterSave.push(aNm.toLowerCase());
+            }
           }
         }
         return jsonp({ success: true, profiles: mergedAfterSave });
