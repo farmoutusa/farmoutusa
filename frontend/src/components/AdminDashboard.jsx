@@ -281,7 +281,7 @@ export default function AdminDashboard({ onLogout }) {
     try {
       const data = await fetchAdmin('save_employee', {
         name:      empForm.name.trim(),
-        type:      empForm.type,
+        empType:   empForm.type,
         birthday:  empForm.birthday,
         phone:     empForm.phone,
         email:     empForm.email,

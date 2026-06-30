@@ -838,13 +838,22 @@ function handleAdminRequest(data) {
 
     // ── Employee Profiles admin actions ──────────────────────────────────────
     if (data.action === 'get_employee_profiles') {
-      return jsonp({ profiles: getEmployeeProfiles(ss) });
+      var profiles = getEmployeeProfiles(ss);
+      // Auto-add any staff list members who don't have a profile yet
+      var staffNames = getStaffNames(ss);
+      var profileNames = profiles.map(function(p) { return p.name.toLowerCase(); });
+      for (var si = 0; si < staffNames.length; si++) {
+        if (profileNames.indexOf(staffNames[si].toLowerCase()) === -1) {
+          profiles.push({ name: staffNames[si], type: 'Part-time', birthday: '', phone: '', email: '', startDate: '' });
+        }
+      }
+      return jsonp({ profiles: profiles });
     }
 
     if (data.action === 'save_employee') {
       return jsonp(saveEmployeeProfile(ss, {
         name:      data.name,
-        type:      data.type,
+        type:      data.empType,
         birthday:  data.birthday,
         phone:     data.phone,
         email:     data.email,
