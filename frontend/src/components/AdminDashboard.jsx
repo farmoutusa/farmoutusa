@@ -599,6 +599,9 @@ export default function AdminDashboard({ onLogout }) {
                                   Cancel
                                 </button>
                               </div>
+                              {empError && empEditing !== 'new' && (
+                                <p className="text-xs text-red-500 mt-1">{empError}</p>
+                              )}
                             </td>
                           </tr>
                         ) : (

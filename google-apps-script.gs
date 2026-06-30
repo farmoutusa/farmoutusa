@@ -71,7 +71,14 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.TEXT);
   }
   try {
-    var data = e.parameter;
+    // Use a mutable copy so backwards-compat patches can modify type/empType
+    var data = Object.assign({}, e.parameter || {});
+
+    // Backwards-compat: old frontend sent employee type in 'type' param (collision with routing key)
+    if (data.type === 'Full-time' || data.type === 'Part-time') {
+      data.empType = data.type;
+      data.type = 'admin';
+    }
 
     if (data.type === 'attendance') {
       var attResult, attErr;
@@ -851,14 +858,28 @@ function handleAdminRequest(data) {
     }
 
     if (data.action === 'save_employee') {
-      return jsonp(saveEmployeeProfile(ss, {
+      console.log('save_employee name=' + data.name + ' empType=' + data.empType);
+      var saveRes = saveEmployeeProfile(ss, {
         name:      data.name,
         type:      data.empType,
         birthday:  data.birthday,
         phone:     data.phone,
         email:     data.email,
         startDate: data.startDate,
-      }));
+      });
+      if (saveRes.success) {
+        // Return merged profiles (sheet entries + any staff list members without profiles)
+        var mergedAfterSave = saveRes.profiles || [];
+        var sNamesAfterSave = getStaffNames(ss);
+        var pNamesAfterSave = mergedAfterSave.map(function(p) { return p.name.toLowerCase(); });
+        for (var ms = 0; ms < sNamesAfterSave.length; ms++) {
+          if (pNamesAfterSave.indexOf(sNamesAfterSave[ms].toLowerCase()) === -1) {
+            mergedAfterSave.push({ name: sNamesAfterSave[ms], type: 'Part-time', birthday: '', phone: '', email: '', startDate: '' });
+          }
+        }
+        return jsonp({ success: true, profiles: mergedAfterSave });
+      }
+      return jsonp(saveRes);
     }
 
     if (data.action === 'remove_employee') {
