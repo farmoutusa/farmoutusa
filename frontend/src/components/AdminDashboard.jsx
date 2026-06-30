@@ -99,6 +99,9 @@ export default function AdminDashboard({ onLogout }) {
   const [loginLogLoading, setLoginLogLoading] = useState(false);
   const [loginLogError,   setLoginLogError]   = useState(null);
 
+  // ── Admin manual clock-out ────────────────────────────────────────────────
+  const [clockingOut, setClockingOut] = useState(null); // agentName being clocked out
+
   // ── Employee Profiles ──────────────────────────────────────────────────────
   const [empProfiles, setEmpProfiles] = useState([]);
   const [empLoading,  setEmpLoading]  = useState(true);
@@ -118,6 +121,22 @@ export default function AdminDashboard({ onLogout }) {
   const [msgHistoryLoading,  setMsgHistoryLoading]  = useState(false);
   const [msgHistoryError,    setMsgHistoryError]    = useState(null);
   const [msgDeleting,        setMsgDeleting]        = useState(null); // id being deleted
+
+  async function handleAdminClockOut(agentName) {
+    if (!window.confirm(`Manually clock out ${agentName}? This will end their current session.`)) return;
+    setClockingOut(agentName);
+    try {
+      const data = await fetchAdmin('admin_clock_out', { name: agentName });
+      if (data.error) { alert('Clock-out failed: ' + data.error); return; }
+      if (data.dashboard) {
+        setDash(data.dashboard);
+        setRefreshedAt(new Date());
+      } else {
+        await loadDash();
+      }
+    } catch (e) { alert('Clock-out failed: ' + e.message); }
+    finally { setClockingOut(null); }
+  }
 
   const loadDash = useCallback(async () => {
     try {
@@ -407,6 +426,7 @@ export default function AdminDashboard({ onLogout }) {
                         <th className="text-left pb-2 font-medium px-1">Status</th>
                         <th className="text-left pb-2 font-medium px-1">Clocked In At</th>
                         <th className="text-left pb-2 font-medium px-1">Break Time</th>
+                        <th className="text-left pb-2 font-medium px-1">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
@@ -421,6 +441,16 @@ export default function AdminDashboard({ onLogout }) {
                             {a.totalBreakMs > 0
                               ? <span className="text-amber-600">{fmtHours(a.totalBreakMs / 3600000)}</span>
                               : <span className="text-gray-300">—</span>}
+                          </td>
+                          <td className="py-2.5 px-1">
+                            {(a.status === 'working' || a.status === 'on_break') && (
+                              <button
+                                onClick={() => handleAdminClockOut(a.name)}
+                                disabled={clockingOut !== null}
+                                className="text-xs font-semibold text-red-600 hover:text-white hover:bg-red-600 border border-red-300 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-40 whitespace-nowrap">
+                                {clockingOut === a.name ? '…' : 'Clock Out'}
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}

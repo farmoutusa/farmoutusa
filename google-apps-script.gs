@@ -843,6 +843,52 @@ function handleAdminRequest(data) {
       return jsonp({ entries: entries });
     }
 
+    // ── Admin manual clock-out ───────────────────────────────────────────────
+    if (data.action === 'admin_clock_out') {
+      var targetAgent = String(data.name || '').trim();
+      if (!targetAgent) return jsonp({ error: 'Agent name required' });
+      var attSheet = ss.getSheetByName('Attendance Log');
+      if (!attSheet) return jsonp({ error: 'No attendance log found' });
+      var nowAco   = new Date().getTime();
+      var cutAco   = nowAco - 24 * 60 * 60 * 1000;
+      var hasOpen  = false;
+      if (attSheet.getLastRow() > 1) {
+        var acoRows = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 11).getValues();
+        for (var ai = 0; ai < acoRows.length; ai++) {
+          var aName = String(acoRows[ai][1]);
+          var aAct  = String(acoRows[ai][2]);
+          var aEp   = Number(acoRows[ai][10]);
+          if (aName !== targetAgent || !aEp || aEp < cutAco) continue;
+          if (aAct === 'CLOCK_IN')  hasOpen = true;
+          if (aAct === 'CLOCK_OUT') hasOpen = false;
+        }
+      }
+      if (!hasOpen) return jsonp({ error: targetAgent + ' does not have an open session' });
+      var acoComp = computeServerDuration(attSheet, targetAgent, nowAco);
+      attSheet.appendRow([
+        Utilities.formatDate(new Date(), 'Asia/Manila', 'MM/dd/yyyy hh:mm:ss a'),
+        targetAgent, 'CLOCK_OUT', 'Manual clock-out by admin',
+        '', '', '', '',
+        acoComp ? acoComp.hhmmss : '',
+        acoComp ? Math.round(acoComp.hours * 10000) / 10000 : '',
+        nowAco,
+      ]);
+      attSheet.autoResizeColumns(1, 10);
+      if (acoComp) {
+        var acoData = { agentName: targetAgent, durationHours: acoComp.hours.toFixed(4), totalWorked: acoComp.hhmmss };
+        updateDailySummary(ss, acoData);
+      }
+      try {
+        var acoH = acoComp ? Math.floor(acoComp.hours) : 0;
+        var acoM = acoComp ? Math.round((acoComp.hours - acoH) * 60) : 0;
+        MailApp.sendEmail(NOTIFICATION_EMAIL,
+          'Manual Clock-Out (Admin): ' + targetAgent + ' — ' + acoH + 'h ' + acoM + 'm worked',
+          'Staff: ' + targetAgent + '\nClock-out: ' + Utilities.formatDate(new Date(), 'Asia/Manila', 'MM/dd/yyyy hh:mm:ss a') +
+          '\nWork hours: ' + (acoComp ? acoComp.hhmmss : '—') + '\nNote: Manually clocked out by admin');
+      } catch (mailErr) { console.error('Admin clock-out email error:', mailErr.toString()); }
+      return jsonp({ success: true, dashboard: getAdminDashboard(ss) });
+    }
+
     // ── Employee Profiles admin actions ──────────────────────────────────────
     if (data.action === 'get_employee_profiles') {
       var profiles = getEmployeeProfiles(ss);
