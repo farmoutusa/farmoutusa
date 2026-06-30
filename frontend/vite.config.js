@@ -53,7 +53,7 @@ export default defineConfig({
     port: 5173,
   },
   build: {
-    outDir: process.env.NETLIFY ? 'dist' : '../backend/public',
+    outDir: (process.env.NETLIFY || process.env.CF_PAGES) ? 'dist' : '../backend/public',
     emptyOutDir: true,
   },
 });
