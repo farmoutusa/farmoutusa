@@ -1,0 +1,9 @@
+frontend/**
+backend/**
+node_modules/**
+README.md
+netlify.toml
+package.json
+render.yaml
+.clasp.json
+.claspignore

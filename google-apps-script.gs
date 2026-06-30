@@ -7,6 +7,9 @@ var SHEET_ID             = '1ai6NZwW2Inp3ta1uj48UTQeWMwXQfOBuU0iZP8tUFEM';
 var DEFAULT_ADMIN_KEY    = 'S26Ultr@';
 var DEFAULT_AGENT_KEY    = 'farmoutusavmtool';
 
+// Hour caps in milliseconds
+var HOUR_CAPS = { 'Full-time': 9 * 3600 * 1000, 'Part-time': 5 * 3600 * 1000 };
+
 // ── Settings tab helpers ──────────────────────────────────────────────────────
 // Passwords are stored in a hidden "Settings" sheet tab so no extra OAuth
 // scope authorization is needed (PropertiesService requires a separate step).
@@ -102,6 +105,10 @@ function doGet(e) {
       return handleStaffList(data);
     }
 
+    if (data.type === 'messages') {
+      return handleMessages(data);
+    }
+
     // ── Callback Log ──────────────────────────────────────────────────────
     var ss    = SpreadsheetApp.openById(SHEET_ID);
     var sheet = ss.getSheetByName('Callback Log');
@@ -146,6 +153,7 @@ function doGet(e) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function handleAttendance(data) {
+  console.log('handleAttendance START action=' + (data.action || '?') + ' agent=' + (data.agentName || '?'));
   var ss    = SpreadsheetApp.openById(SHEET_ID);
   var sheet = ss.getSheetByName('Attendance Log');
 
@@ -163,9 +171,71 @@ function handleAttendance(data) {
     sheet.hideColumns(11);
   }
 
+  var action  = data.action || '';
+  var agentName = data.agentName || '';
+
+  // ── Force clock-out (agent re-logging in from a different device) ──────────
+  if (action === 'FORCE_CLOCK_OUT') {
+    var nowFco     = new Date().getTime();
+    var cutoffFco  = nowFco - 24 * 60 * 60 * 1000;
+    if (sheet.getLastRow() > 1) {
+      var fcoRows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 11).getValues();
+      var fcoOpen = false;
+      for (var fi = 0; fi < fcoRows.length; fi++) {
+        var fName   = String(fcoRows[fi][1]);
+        var fAction = String(fcoRows[fi][2]);
+        var fEpoch  = Number(fcoRows[fi][10]);
+        if (fName !== agentName || !fEpoch || fEpoch < cutoffFco) continue;
+        if (fAction === 'CLOCK_IN')  fcoOpen = true;
+        if (fAction === 'CLOCK_OUT') fcoOpen = false;
+      }
+      if (fcoOpen) {
+        var fcoComputed = computeServerDuration(sheet, agentName, nowFco);
+        sheet.appendRow([
+          Utilities.formatDate(new Date(), 'Asia/Manila', 'MM/dd/yyyy hh:mm:ss a'),
+          agentName,
+          'CLOCK_OUT',
+          'Auto clock-out: agent re-logged in from another device',
+          '', '', '', '',
+          fcoComputed ? fcoComputed.hhmmss : '',
+          fcoComputed ? Math.round(fcoComputed.hours * 10000) / 10000 : '',
+          nowFco,
+        ]);
+        sheet.autoResizeColumns(1, 10);
+        if (fcoComputed) {
+          data.durationHours = fcoComputed.hours.toFixed(4);
+          data.totalWorked   = fcoComputed.hhmmss;
+          updateDailySummary(ss, data);
+        }
+      }
+    }
+    return { success: true };
+  }
+
+  // ── Duplicate clock-in prevention (multi-browser/device) ──────────────────
+  if (action === 'CLOCK_IN') {
+    var nowCheck = new Date().getTime();
+    var cutoffCheck = nowCheck - 24 * 60 * 60 * 1000;
+    if (sheet.getLastRow() > 1) {
+      var checkRows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 11).getValues();
+      var hasOpenSession = false;
+      // Walk rows chronologically; track the most recent CLOCK_IN/CLOCK_OUT for this agent
+      for (var ci = 0; ci < checkRows.length; ci++) {
+        var cAgent  = String(checkRows[ci][1]);
+        var cAction = String(checkRows[ci][2]);
+        var cEpoch  = Number(checkRows[ci][10]);
+        if (cAgent !== agentName || !cEpoch || cEpoch < cutoffCheck) continue;
+        if (cAction === 'CLOCK_IN')  hasOpenSession = true;
+        if (cAction === 'CLOCK_OUT') hasOpenSession = false;
+      }
+      if (hasOpenSession) {
+        return { success: false, error: 'already_clocked_in' };
+      }
+    }
+  }
+
   // Build "details" cell based on action
   var details = '';
-  var action  = data.action || '';
   if (action === 'BREAK_START') {
     details = (data.breakType || '') + (data.breakReason ? ' — ' + data.breakReason : '') +
               ' | worked so far: ' + (data.workedSoFar || '');
@@ -173,6 +243,8 @@ function handleAttendance(data) {
     details = 'Break was ' + (data.breakType || '') + ' · duration: ' + (data.breakDuration || '');
   } else if (action === 'CLOCK_OUT') {
     details = 'Clocked in at: ' + (data.clockInTime || '');
+  } else if (action === 'OVERTIME') {
+    details = 'Overtime started at: ' + (data.timestamp || '');
   }
 
   // Screenshot → Google Drive (CLOCK_IN only)
@@ -180,7 +252,7 @@ function handleAttendance(data) {
   if (action === 'CLOCK_IN' && data.screenshot && data.screenshot.length > 20) {
     try {
       var decoded  = Utilities.base64Decode(data.screenshot);
-      var filename = 'attendance_' + (data.agentName || 'unknown') + '_' +
+      var filename = 'attendance_' + (agentName || 'unknown') + '_' +
                      Utilities.formatDate(new Date(), 'Asia/Manila', 'yyyyMMdd_HHmmss') + '.jpg';
       var blob     = Utilities.newBlob(decoded, 'image/jpeg', filename);
       var iter     = DriveApp.getFoldersByName('CallbackVM Screenshots');
@@ -207,9 +279,9 @@ function handleAttendance(data) {
         var clientDir = (serverEpoch > clientEpoch) ? 'behind' : 'ahead of';
         MailApp.sendEmail(
           NOTIFICATION_EMAIL,
-          '⚠️ Clock Mismatch: ' + (data.agentName || 'Unknown') + ' (' + diffMins + ' min ' + clientDir + ' server)',
+          '⚠️ Clock Mismatch: ' + (agentName || 'Unknown') + ' (' + diffMins + ' min ' + clientDir + ' server)',
           'A staff member\'s local clock differs significantly from the server clock.\n\n' +
-          'Staff:       ' + (data.agentName || 'Unknown') + '\n' +
+          'Staff:       ' + (agentName || 'Unknown') + '\n' +
           'Action:      ' + action + '\n' +
           'Client time: ' + new Date(clientEpoch).toISOString() + '\n' +
           'Server time: ' + new Date(serverEpoch).toISOString() + '\n' +
@@ -224,16 +296,17 @@ function handleAttendance(data) {
   var serverHours = null;
   var serverWorked = '';
   if (action === 'CLOCK_OUT') {
-    var computed = computeServerDuration(sheet, data.agentName || '', serverEpoch);
+    var computed = computeServerDuration(sheet, agentName, serverEpoch);
     if (computed) {
       serverHours  = computed.hours;
       serverWorked = computed.hhmmss;
     }
   }
 
+  console.log('handleAttendance BEFORE appendRow agent=' + (agentName || '?') + ' action=' + action);
   sheet.appendRow([
     Utilities.formatDate(new Date(), 'Asia/Manila', 'MM/dd/yyyy hh:mm:ss a'),
-    data.agentName || '',
+    agentName,
     action,
     details,
     data.ip       || '',
@@ -244,6 +317,7 @@ function handleAttendance(data) {
     action === 'CLOCK_OUT' ? (serverHours !== null ? Math.round(serverHours * 10000) / 10000 : '') : '',
     serverEpoch,
   ]);
+  console.log('handleAttendance AFTER appendRow agent=' + (agentName || '?') + ' action=' + action);
   sheet.autoResizeColumns(1, 10);
 
   // Update Daily Summary on clock-out
@@ -260,8 +334,8 @@ function handleAttendance(data) {
       var humanHours = h + ' hr' + (h !== 1 ? 's' : '') + (m > 0 ? ' ' + m + ' min' : '');
       MailApp.sendEmail(
         NOTIFICATION_EMAIL,
-        'Clock-Out: ' + (data.agentName || 'Unknown') + ' — ' + humanHours + ' worked',
-        'Staff:       ' + (data.agentName  || '') + '\n' +
+        'Clock-Out: ' + (agentName || 'Unknown') + ' — ' + humanHours + ' worked',
+        'Staff:       ' + (agentName  || '') + '\n' +
         'Clocked in:  ' + (data.clockInTime || '') + '\n' +
         'Clocked out: ' + (data.timestamp   || '') + '\n' +
         'Work hours:  ' + (data.totalWorked || '') + '  (' + hours.toFixed(2) + ' hrs)\n'
@@ -273,11 +347,17 @@ function handleAttendance(data) {
 
   // Notify on clock-in
   if (action === 'CLOCK_IN') {
+    // Look up employee type for cap info
+    var empType = getEmployeeType(ss, agentName);
+    var dailyCapMs = HOUR_CAPS[empType] || HOUR_CAPS['Part-time'];
+
     try {
       MailApp.sendEmail(
         NOTIFICATION_EMAIL,
-        'Clock-In: ' + (data.agentName || 'Unknown') + ' at ' + (data.timestamp || ''),
-        'Staff:    ' + (data.agentName || '') + '\n' +
+        'Clock-In: ' + (agentName || 'Unknown') + ' at ' + (data.timestamp || ''),
+        'Staff:    ' + (agentName || '') + '\n' +
+        'Type:     ' + empType + '\n' +
+        'Daily Cap: ' + (dailyCapMs / 3600000) + ' hrs\n' +
         'Time:     ' + (data.timestamp || '') + '\n' +
         'IP:       ' + (data.ip        || '') + '\n' +
         'Location: ' + (data.location  || '') + '\n' +
@@ -287,6 +367,8 @@ function handleAttendance(data) {
     } catch (mailErr) {
       console.error('Clock-in email error:', mailErr.toString());
     }
+
+    return { success: true, epoch: serverEpoch, employeeType: empType, dailyCapMs: dailyCapMs };
   }
 
   return { success: true, epoch: serverEpoch };
@@ -444,12 +526,14 @@ function handleStaffList(data) {
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var names = getStaffNames(ss);
+    var screenshotAllowed = (getSetting(ss, 'ALLOW_SCREENSHOTS') || '0') === '1';
+    var staffProfiles = getEmployeeProfiles(ss);
     return ContentService
-      .createTextOutput(cb + '(' + JSON.stringify({ names: names }) + ')')
+      .createTextOutput(cb + '(' + JSON.stringify({ names: names, screenshotAllowed: screenshotAllowed, staffProfiles: staffProfiles }) + ')')
       .setMimeType(ContentService.MimeType.JAVASCRIPT);
   } catch (e) {
     return ContentService
-      .createTextOutput(cb + '({"names":[]})')
+      .createTextOutput(cb + '({"names":[],"screenshotAllowed":false,"staffProfiles":[]})')
       .setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
 }
@@ -500,6 +584,194 @@ function removeStaffMember(ss, name) {
   return { error: 'Name not found' };
 }
 
+// ── Employee Profiles ─────────────────────────────────────────────────────────
+// Sheet: "Employee Profiles"
+// Columns: Name | Type | Birthday | Phone | Email | Start Date
+
+function getOrCreateEmployeeProfilesSheet(ss) {
+  var sheet = ss.getSheetByName('Employee Profiles');
+  if (!sheet) {
+    sheet = ss.insertSheet('Employee Profiles');
+    var hdrs = ['Name', 'Type', 'Birthday', 'Phone', 'Email', 'Start Date'];
+    sheet.appendRow(hdrs);
+    sheet.getRange(1, 1, 1, hdrs.length)
+      .setFontWeight('bold').setBackground('#1e3a8a').setFontColor('#ffffff');
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function getEmployeeProfiles(ss) {
+  var sheet = ss.getSheetByName('Employee Profiles');
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getValues();
+  var profiles = [];
+  for (var i = 0; i < rows.length; i++) {
+    var name = String(rows[i][0]).trim();
+    if (!name) continue;
+    profiles.push({
+      name:      name,
+      type:      String(rows[i][1]).trim() || 'Part-time',
+      birthday:  fmtSheetVal(rows[i][2], 'yyyy-MM-dd'),
+      phone:     String(rows[i][3]).trim(),
+      email:     String(rows[i][4]).trim(),
+      startDate: fmtSheetVal(rows[i][5], 'yyyy-MM-dd'),
+    });
+  }
+  return profiles;
+}
+
+function saveEmployeeProfile(ss, profile) {
+  var sheet = getOrCreateEmployeeProfilesSheet(ss);
+  var name  = String(profile.name || '').trim();
+  if (!name) return { error: 'Name is required' };
+
+  // Check if profile already exists (update) or is new (append)
+  if (sheet.getLastRow() > 1) {
+    var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][0]).trim().toLowerCase() === name.toLowerCase()) {
+        // Update existing row
+        sheet.getRange(i + 2, 1, 1, 6).setValues([[
+          name,
+          profile.type      || 'Part-time',
+          profile.birthday  || '',
+          profile.phone     || '',
+          profile.email     || '',
+          profile.startDate || '',
+        ]]);
+        return { success: true, profiles: getEmployeeProfiles(ss) };
+      }
+    }
+  }
+  // Append new
+  sheet.appendRow([
+    name,
+    profile.type      || 'Part-time',
+    profile.birthday  || '',
+    profile.phone     || '',
+    profile.email     || '',
+    profile.startDate || '',
+  ]);
+  return { success: true, profiles: getEmployeeProfiles(ss) };
+}
+
+function deleteEmployeeProfile(ss, name) {
+  if (!name) return { error: 'Name is required' };
+  name = String(name).trim();
+  var sheet = ss.getSheetByName('Employee Profiles');
+  if (!sheet || sheet.getLastRow() < 2) return { error: 'No profiles found' };
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+  for (var i = rows.length - 1; i >= 0; i--) {
+    if (String(rows[i][0]).trim().toLowerCase() === name.toLowerCase()) {
+      sheet.deleteRow(i + 2);
+      return { success: true, profiles: getEmployeeProfiles(ss) };
+    }
+  }
+  return { error: 'Profile not found' };
+}
+
+// Returns 'Full-time' or 'Part-time' for an agent. Defaults to 'Part-time' if not found.
+function getEmployeeType(ss, agentName) {
+  var sheet = ss.getSheetByName('Employee Profiles');
+  if (!sheet || sheet.getLastRow() < 2) return 'Part-time';
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]).trim().toLowerCase() === String(agentName).trim().toLowerCase()) {
+      var t = String(rows[i][1]).trim();
+      return (t === 'Full-time' || t === 'Part-time') ? t : 'Part-time';
+    }
+  }
+  return 'Part-time';
+}
+
+// ── Internal Messaging ────────────────────────────────────────────────────────
+// Sheet: "Messages" (hidden)
+// Columns: ID | Timestamp | From | To | Message | Read_By
+
+function getOrCreateMessagesSheet(ss) {
+  var sheet = ss.getSheetByName('Messages');
+  if (!sheet) {
+    sheet = ss.insertSheet('Messages');
+    var hdrs = ['ID', 'Timestamp', 'From', 'To', 'Message', 'Read_By'];
+    sheet.appendRow(hdrs);
+    sheet.getRange(1, 1, 1, hdrs.length)
+      .setFontWeight('bold').setBackground('#1e3a8a').setFontColor('#ffffff');
+    sheet.setFrozenRows(1);
+    sheet.hideSheet();
+  }
+  return sheet;
+}
+
+function handleMessages(data) {
+  var cb = data.callback || 'callback';
+
+  function jsonp(obj) {
+    return ContentService
+      .createTextOutput(cb + '(' + JSON.stringify(obj) + ')')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+
+  try {
+    var ss    = SpreadsheetApp.openById(SHEET_ID);
+    var sheet = getOrCreateMessagesSheet(ss);
+    var action = data.action || '';
+
+    if (action === 'get') {
+      var agentName = String(data.agentName || '').trim();
+      if (!agentName) return jsonp({ messages: [] });
+
+      var messages = [];
+      if (sheet.getLastRow() > 1) {
+        var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getValues();
+        for (var i = 0; i < rows.length; i++) {
+          var msgId   = String(rows[i][0]);
+          var msgTs   = fmtSheetVal(rows[i][1]);
+          var msgFrom = String(rows[i][2]);
+          var msgTo   = String(rows[i][3]);
+          var msgText = String(rows[i][4]);
+          var readBy  = String(rows[i][5]);
+
+          // Show if addressed to this agent or broadcast to All
+          if (msgTo !== 'All' && msgTo !== agentName) continue;
+          // Skip already read
+          var readList = readBy ? readBy.split(',').map(function(s) { return s.trim(); }) : [];
+          if (readList.indexOf(agentName) !== -1) continue;
+
+          messages.push({ id: msgId, timestamp: msgTs, from: msgFrom, to: msgTo, message: msgText });
+        }
+      }
+      return jsonp({ messages: messages });
+    }
+
+    if (action === 'mark_read') {
+      var msgId    = String(data.messageId || '').trim();
+      var agentNm  = String(data.agentName || '').trim();
+      if (!msgId || !agentNm) return jsonp({ success: false, error: 'Missing params' });
+
+      if (sheet.getLastRow() > 1) {
+        var rows2 = sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getValues();
+        for (var j = 0; j < rows2.length; j++) {
+          if (String(rows2[j][0]) === msgId) {
+            var existingReadBy = String(rows2[j][5]);
+            var readList2 = existingReadBy ? existingReadBy.split(',').map(function(s) { return s.trim(); }) : [];
+            if (readList2.indexOf(agentNm) === -1) {
+              readList2.push(agentNm);
+              sheet.getRange(j + 2, 6).setValue(readList2.join(', '));
+            }
+            return jsonp({ success: true });
+          }
+        }
+      }
+      return jsonp({ success: false, error: 'Message not found' });
+    }
+
+    return jsonp({ error: 'Unknown action' });
+  } catch (err) {
+    return jsonp({ error: err.toString() });
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Run these manually once to authorize all scopes (MailApp + DriveApp)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -542,6 +814,14 @@ function handleAdminRequest(data) {
       return jsonp({ success: true });
     }
 
+    if (data.action === 'set_setting') {
+      var settingKey = String(data.key || '').trim();
+      var settingVal = String(data.value || '').trim();
+      if (!settingKey) return jsonp({ error: 'Key required' });
+      setSetting(ss, settingKey, settingVal);
+      return jsonp({ success: true });
+    }
+
     if (data.action === 'get_login_log') {
       var logSheet = ss.getSheetByName('Login Log');
       if (!logSheet || logSheet.getLastRow() < 2) return jsonp({ entries: [] });
@@ -554,6 +834,72 @@ function handleAdminRequest(data) {
         return { time: fmtSheetVal(r[0]), result: String(r[1]), password: String(r[2]), ip: r[3] ? String(r[3]) : '' };
       });
       return jsonp({ entries: entries });
+    }
+
+    // ── Employee Profiles admin actions ──────────────────────────────────────
+    if (data.action === 'get_employee_profiles') {
+      return jsonp({ profiles: getEmployeeProfiles(ss) });
+    }
+
+    if (data.action === 'save_employee') {
+      return jsonp(saveEmployeeProfile(ss, {
+        name:      data.name,
+        type:      data.type,
+        birthday:  data.birthday,
+        phone:     data.phone,
+        email:     data.email,
+        startDate: data.startDate,
+      }));
+    }
+
+    if (data.action === 'remove_employee') {
+      return jsonp(deleteEmployeeProfile(ss, data.name));
+    }
+
+    // ── Internal Messaging admin actions ─────────────────────────────────────
+    if (data.action === 'send_message') {
+      var msgSheet = getOrCreateMessagesSheet(ss);
+      var msgId    = 'msg_' + new Date().getTime() + '_' + Math.floor(Math.random() * 9999);
+      var msgTs    = Utilities.formatDate(new Date(), 'Asia/Manila', 'MM/dd/yyyy hh:mm:ss a');
+      msgSheet.appendRow([msgId, msgTs, 'Admin', data.to || 'All', data.message || '', '']);
+      return jsonp({ success: true, id: msgId });
+    }
+
+    if (data.action === 'get_messages_admin') {
+      var msgSheet2 = ss.getSheetByName('Messages');
+      if (!msgSheet2 || msgSheet2.getLastRow() < 2) return jsonp({ messages: [] });
+      var cutoffMs  = new Date().getTime() - 7 * 24 * 60 * 60 * 1000;
+      var allRows   = msgSheet2.getRange(2, 1, msgSheet2.getLastRow() - 1, 6).getValues();
+      var recent    = [];
+      for (var mi = allRows.length - 1; mi >= 0; mi--) {
+        var rowTs = allRows[mi][1];
+        var rowEpoch2 = rowTs instanceof Date ? rowTs.getTime() : new Date(String(rowTs)).getTime();
+        if (rowEpoch2 < cutoffMs) continue;
+        recent.push({
+          id:        String(allRows[mi][0]),
+          timestamp: fmtSheetVal(allRows[mi][1]),
+          from:      String(allRows[mi][2]),
+          to:        String(allRows[mi][3]),
+          message:   String(allRows[mi][4]),
+          readBy:    String(allRows[mi][5]),
+        });
+        if (recent.length >= 20) break;
+      }
+      return jsonp({ messages: recent });
+    }
+
+    if (data.action === 'delete_message') {
+      var delSheet = ss.getSheetByName('Messages');
+      if (!delSheet || delSheet.getLastRow() < 2) return jsonp({ error: 'No messages' });
+      var delId  = String(data.id || '').trim();
+      var delRows = delSheet.getRange(2, 1, delSheet.getLastRow() - 1, 1).getValues();
+      for (var di = delRows.length - 1; di >= 0; di--) {
+        if (String(delRows[di][0]) === delId) {
+          delSheet.deleteRow(di + 2);
+          return jsonp({ success: true });
+        }
+      }
+      return jsonp({ error: 'Message not found' });
     }
 
     return jsonp({ error: 'Unknown action' });
@@ -638,6 +984,7 @@ function getAdminDashboard(ss) {
     todaySummary: todaySummary,
     today: today,
     serverTime: Utilities.formatDate(new Date(), tz, 'MMM d, yyyy h:mm:ss a'),
+    screenshotAllowed: (getSetting(ss, 'ALLOW_SCREENSHOTS') || '0') === '1',
   };
 }
 
@@ -672,13 +1019,18 @@ function getAdminRange(ss, fromDate, toDate) {
     map[agent].days++;
   }
 
-  var agents = Object.keys(map).map(function(k) {
-    var a   = map[k];
-    var tot = Math.round(a.totalHours * 10000) / 10000;
-    var h   = Math.floor(tot);
-    var m   = Math.round((tot - h) * 60);
-    return { agent: a.agent, totalHours: tot, days: a.days, label: h + ' hr' + (h !== 1 ? 's' : '') + (m > 0 ? ' ' + m + ' min' : '') };
-  }).sort(function(a, b) { return b.totalHours - a.totalHours; });
+  // Only include agents still on the active staff list
+  var activeNames = getStaffNames(ss).map(function(n) { return n.toLowerCase(); });
+
+  var agents = Object.keys(map)
+    .filter(function(k) { return activeNames.indexOf(k.toLowerCase()) !== -1; })
+    .map(function(k) {
+      var a   = map[k];
+      var tot = Math.round(a.totalHours * 10000) / 10000;
+      var h   = Math.floor(tot);
+      var m   = Math.round((tot - h) * 60);
+      return { agent: a.agent, totalHours: tot, days: a.days, label: h + ' hr' + (h !== 1 ? 's' : '') + (m > 0 ? ' ' + m + ' min' : '') };
+    }).sort(function(a, b) { return b.totalHours - a.totalHours; });
 
   return { from: fromDate, to: toDate, agents: agents };
 }

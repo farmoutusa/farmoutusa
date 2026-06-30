@@ -15,6 +15,10 @@ const BREAK_LIMIT   = { LUNCH: 60*60000, RESTROOM: 15*60000, OTHER: 30*60000 };
 const BREAK_WARN_AT = { LUNCH: 55*60000, RESTROOM: 13*60000, OTHER: 25*60000 };
 const BREAK_LABEL   = { LUNCH: '1 hour', RESTROOM: '15 minutes', OTHER: '30 minutes' };
 
+// Hour cap constants
+const CAPS  = { 'Full-time': 9 * 3600 * 1000, 'Part-time': 5 * 3600 * 1000 };
+const OT_MS = 8 * 3600 * 1000;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtNow() {
@@ -127,21 +131,31 @@ export default function AttendanceTab({ isMobile }) {
   const [att, setAtt] = useState(() => {
     try { return JSON.parse(localStorage.getItem(ATT_KEY)); } catch { return null; }
   });
-  const [agentName,      setAgentName]      = useState(() => att?.agentName || localStorage.getItem('cwc_agent_name') || '');
-  const [staffList,      setStaffList]      = useState([]);
-  const [staffLoading,   setStaffLoading]   = useState(true);
-  const [screenshot,     setScreenshot]     = useState(null);
-  const [status,         setStatus]         = useState('idle');
-  const [showBreakPicker,setShowBreakPicker]= useState(false);
-  const [pendingOther,   setPendingOther]   = useState(false);
-  const [otherReason,    setOtherReason]    = useState('');
-  const [lastClockOut,   setLastClockOut]   = useState(null);
-  const [photoRequired,  setPhotoRequired]  = useState(false);
-  const [tick,           setTick]           = useState(0);
-  const [breakAlert,     setBreakAlert]     = useState(null); // null | 'warning' | 'exceeded'
+  const [agentName,           setAgentName]           = useState(() => att?.agentName || localStorage.getItem('cwc_agent_name') || '');
+  const [staffList,           setStaffList]           = useState([]);
+  const [staffLoading,        setStaffLoading]        = useState(true);
+  const [screenshotAllowed,   setScreenshotAllowed]   = useState(false);
+  const [screenshot,          setScreenshot]          = useState(null);
+  const [status,              setStatus]              = useState('idle');
+  const [showBreakPicker,     setShowBreakPicker]     = useState(false);
+  const [pendingOther,        setPendingOther]        = useState(false);
+  const [otherReason,         setOtherReason]         = useState('');
+  const [lastClockOut,        setLastClockOut]        = useState(null);
+  const [photoRequired,       setPhotoRequired]       = useState(false);
+  const [tick,                setTick]                = useState(0);
+  const [breakAlert,          setBreakAlert]          = useState(null); // null | 'warning' | 'exceeded'
   const [showClockOutConfirm, setShowClockOutConfirm] = useState(false);
+
+  // New state for overtime + messages
+  const [overtimeActive, setOvertimeActive] = useState(false);
+  const [messages,            setMessages]            = useState([]);
+  const [showMessages,        setShowMessages]        = useState(false);
+  const [forceClockoutPrompt, setForceClockoutPrompt] = useState(false);
+
   const breakWarnedRef    = useRef(false);
   const breakExceededRef  = useRef(false);
+  // Ref to prevent re-entrant auto-logout calls
+  const autoLogoutFiredRef = useRef(false);
 
   // 1-second tick to drive live timers
   useEffect(() => {
@@ -149,13 +163,46 @@ export default function AttendanceTab({ isMobile }) {
     return () => clearInterval(id);
   }, []);
 
-  // Load staff list for name dropdown
+  // Load staff list + app settings
   useEffect(() => {
     fetchJsonp({ type: 'staff_list' })
-      .then(data => { if (data?.names?.length) setStaffList(data.names); })
+      .then(data => {
+        if (data?.names?.length) setStaffList(data.names);
+        if (typeof data?.screenshotAllowed === 'boolean') setScreenshotAllowed(data.screenshotAllowed);
+      })
       .catch(() => {})
       .finally(() => setStaffLoading(false));
   }, []);
+
+  // Apply/remove screenshot block via CSS (works on iOS; Android standalone is OS-level)
+  useEffect(() => {
+    document.body.style.userSelect       = screenshotAllowed ? 'auto' : 'none';
+    document.body.style.webkitUserSelect = screenshotAllowed ? 'auto' : 'none';
+    return () => {
+      document.body.style.userSelect       = '';
+      document.body.style.webkitUserSelect = '';
+    };
+  }, [screenshotAllowed]);
+
+  async function handleErrorReport() {
+    const statusLabel = { working: 'Working', on_break: 'On Break', idle: 'Idle' };
+    const lines = [
+      '=== FARMOUTUSA VM ERROR REPORT ===',
+      'App: v2.0',
+      'Time: ' + fmtNow(),
+      'Agent: ' + (att?.agentName || agentName || '—'),
+      'Status: ' + (statusLabel[att?.phase] || 'Idle'),
+      'Device: ' + navigator.userAgent.slice(0, 120),
+      'URL: ' + window.location.href,
+    ];
+    const report = lines.join('\n');
+    if (navigator.share) {
+      try { await navigator.share({ title: 'VM App Error Report', text: report }); return; }
+      catch { /* user cancelled */ }
+    }
+    try { await navigator.clipboard.writeText(report); alert('Report copied! Paste it in a message to the admin.'); }
+    catch { alert(report); }
+  }
 
   // Reset alert refs whenever a new break starts
   useEffect(() => {
@@ -181,6 +228,37 @@ export default function AttendanceTab({ isMobile }) {
     }
   }, [tick]);
 
+  // ── Hour cap / auto-logout check every tick ────────────────────────────────
+  useEffect(() => {
+    if (!att || att.phase !== 'working') return;
+    const capMs = att.dailyCapMs || CAPS[att.employeeType] || null;
+    if (!capMs) return;
+    const effectiveCap = capMs + (overtimeActive ? OT_MS : 0);
+    if (workMs() >= effectiveCap && !autoLogoutFiredRef.current) {
+      autoLogoutFiredRef.current = true;
+      handleClockOut();
+    }
+  }, [tick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset auto-logout guard when session ends
+  useEffect(() => {
+    if (!att) autoLogoutFiredRef.current = false;
+  }, [att]);
+
+  // Message polling — every 60 seconds while working or on break
+  useEffect(() => {
+    const name = att?.agentName;
+    if (!name || !att || (att.phase !== 'working' && att.phase !== 'on_break')) return;
+    function poll() {
+      fetchJsonp({ type: 'messages', action: 'get', agentName: name })
+        .then(d => { if (d?.messages) setMessages(d.messages); })
+        .catch(() => {});
+    }
+    poll();
+    const id = setInterval(poll, 60000);
+    return () => clearInterval(id);
+  }, [att?.agentName, att?.phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function saveAtt(data) {
     if (data) localStorage.setItem(ATT_KEY, JSON.stringify(data));
     else      localStorage.removeItem(ATT_KEY);
@@ -197,6 +275,17 @@ export default function AttendanceTab({ isMobile }) {
     if (!att || att.phase !== 'on_break') return 0;
     return Date.now() - att.breakStart;
   }
+
+  // Derived cap values (recomputed on every render — driven by tick)
+  const capMs = att ? (att.dailyCapMs || CAPS[att.employeeType] || null) : null;
+  const effectiveCapMs = capMs ? capMs + (overtimeActive ? OT_MS : 0) : null;
+  const nearingCap = !!(
+    effectiveCapMs &&
+    !overtimeActive &&
+    workMs() >= effectiveCapMs - 15 * 60 * 1000 &&
+    workMs() < effectiveCapMs
+  );
+  const unreadCount = messages.length;
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -221,14 +310,38 @@ export default function AttendanceTab({ isMobile }) {
     try {
       // JSONP confirms GAS received the event — no screenshot to keep URL short
       const result = await fetchJsonp(basePayload, 15000);
-      if (!result || result.error) throw new Error(result?.error || 'GAS rejected the request');
+      if (!result || result.error) {
+        if (result?.error === 'already_clocked_in') {
+          setStatus('idle');
+          setForceClockoutPrompt(true);
+          return;
+        }
+        throw new Error(result?.error || 'GAS rejected the request');
+      }
       // Screenshot sent separately (fire-and-forget, supplementary)
       if (b64) log({ ...basePayload, screenshot: b64 });
       localStorage.setItem('cwc_agent_name', name);
-      saveAtt({ phase: 'working', agentName: name, clockInTs: ts, clockInPhTime: phTime, totalWorkMs: 0, workSessionStart: ts, breakStart: null, breakType: null, breakReason: '' });
+      setOvertimeActive(false);
+      autoLogoutFiredRef.current = false;
+      saveAtt({
+        phase: 'working', agentName: name, clockInTs: ts, clockInPhTime: phTime,
+        totalWorkMs: 0, workSessionStart: ts, breakStart: null, breakType: null, breakReason: '',
+        employeeType: result.employeeType || 'Part-time',
+        dailyCapMs:   result.dailyCapMs   || null,
+      });
       setStatus('idle');
       setScreenshot(null);
     } catch { setStatus('error'); }
+  }
+
+  async function handleForceClockout(confirmed) {
+    setForceClockoutPrompt(false);
+    if (!confirmed) return;
+    setStatus('sending');
+    try {
+      await fetchJsonp({ type: 'attendance', action: 'FORCE_CLOCK_OUT', agentName: agentName.trim() }, 15000);
+    } catch {}
+    await handleClockIn();
   }
 
   async function handleBreakStart(breakType, reason) {
@@ -271,7 +384,26 @@ export default function AttendanceTab({ isMobile }) {
       setLastClockOut({ agentName: att.agentName, workedMs: totalWorkMs, clockInTime: att.clockInPhTime, clockOutTime: phTime });
       saveAtt(null);
       setStatus('idle');
+      setOvertimeActive(false);
+      setMessages([]);
     } catch { setStatus('error'); }
+  }
+
+  async function handleOvertimeContinue() {
+    setOvertimeActive(true);
+    // Fire-and-forget log to GAS
+    try {
+      await log({ type: 'attendance', action: 'OVERTIME', agentName: att.agentName, timestamp: fmtNow(), clientEpoch: Date.now() });
+    } catch {}
+  }
+
+  async function handleDismissMessage(msgId) {
+    // Optimistically remove from UI
+    setMessages(prev => prev.filter(m => m.id !== msgId));
+    try {
+      fetchJsonp({ type: 'messages', action: 'mark_read', messageId: msgId, agentName: att.agentName })
+        .catch(() => {});
+    } catch {}
   }
 
   function handleFileChange(e) {
@@ -283,9 +415,18 @@ export default function AttendanceTab({ isMobile }) {
 
   const wrapCls = `space-y-3 ${isMobile ? '' : 'max-w-lg mx-auto pt-1'}`;
 
+  const reportBtn = screenshotAllowed ? (
+    <button
+      onClick={handleErrorReport}
+      className="fixed bottom-6 right-4 bg-red-600 text-white rounded-full shadow-xl px-4 py-2.5 z-50 flex items-center gap-2 text-sm font-semibold hover:bg-red-700 active:bg-red-800 transition-colors"
+    >
+      📸 Report Error
+    </button>
+  ) : null;
+
   // ── Clock-Out Summary ──────────────────────────────────────────────────────
   if (lastClockOut) return (
-    <div className={wrapCls}>
+    <><div className={wrapCls}>
       <div className="bg-blue-900 text-white rounded-2xl shadow p-6 text-center space-y-2">
         <p className="text-3xl">🎉</p>
         <p className="text-base font-bold">Good work, {lastClockOut.agentName}!</p>
@@ -302,12 +443,12 @@ export default function AttendanceTab({ isMobile }) {
       <button onClick={() => setLastClockOut(null)} className="w-full border border-gray-200 rounded-xl py-2 text-sm text-gray-400 hover:text-gray-600 transition-colors">
         Clock in again
       </button>
-    </div>
+    </div>{reportBtn}</>
   );
 
   // ── Idle ──────────────────────────────────────────────────────────────────
   if (!att) return (
-    <div className={wrapCls}>
+    <><div className={wrapCls}>
       <div className="bg-white rounded-2xl shadow p-5 space-y-4">
         <h3 className="text-sm font-bold text-gray-800">🕐 Attendance Log</h3>
 
@@ -336,15 +477,31 @@ export default function AttendanceTab({ isMobile }) {
           <label className="block text-xs font-medium text-gray-600 mb-1">
             Kayako + VoIP app screenshot <span className="text-red-500 font-normal">*required</span>
           </label>
-          <label className={`flex items-center gap-2 cursor-pointer border-2 border-dashed rounded-xl p-3 transition-colors ${
-            photoRequired ? 'border-red-400 bg-red-50 hover:border-red-500' : 'border-gray-200 hover:border-orange-300'
+          <div className={`border-2 border-dashed rounded-xl p-3 transition-colors ${
+            photoRequired ? 'border-red-400 bg-red-50' : 'border-gray-200'
           }`}>
-            <span className="text-xl">📎</span>
-            <span className={`text-xs truncate ${photoRequired ? 'text-red-500' : 'text-gray-500'}`}>
-              {screenshot ? screenshot.file.name : 'Click to attach file or photo'}
-            </span>
-            <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
-          </label>
+            {screenshot ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xl">📎</span>
+                <span className="text-xs truncate text-gray-500 flex-1">{screenshot.file.name}</span>
+                <button type="button" onClick={() => setScreenshot(null)}
+                  className="text-xs text-red-400 hover:text-red-600 shrink-0">✕ Remove</button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                <label className="flex items-center justify-center gap-1.5 cursor-pointer bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg py-2 px-3 transition-colors">
+                  <span className="text-base">📷</span>
+                  <span className={`text-xs font-medium ${photoRequired ? 'text-red-500' : 'text-blue-700'}`}>Open Camera</span>
+                  <input type="file" accept="image/*" capture="environment" onChange={handleFileChange} className="hidden" />
+                </label>
+                <label className="flex items-center justify-center gap-1.5 cursor-pointer bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg py-2 px-3 transition-colors">
+                  <span className="text-base">🖼️</span>
+                  <span className={`text-xs font-medium ${photoRequired ? 'text-red-500' : 'text-gray-600'}`}>Choose File</span>
+                  <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                </label>
+              </div>
+            )}
+          </div>
           {screenshot && (
             <img src={screenshot.preview} alt="Preview" className="mt-2 rounded-xl w-full max-h-48 object-contain bg-gray-50 border border-gray-200" />
           )}
@@ -364,6 +521,32 @@ export default function AttendanceTab({ isMobile }) {
       </div>
       <p className="text-xs text-gray-400 text-center pb-2">IP address, device, and location are captured automatically.</p>
     </div>
+
+    {forceClockoutPrompt && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+        <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-3">
+          <p className="text-sm font-bold text-gray-800">Already Clocked In</p>
+          <p className="text-xs text-gray-600 leading-relaxed">
+            You are currently clocked in from another browser or device. Do you want to clock out from that session and clock in here?
+          </p>
+          <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+            You will need to clock in again since you may not be done with your shift.
+          </p>
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <button onClick={() => handleForceClockout(false)}
+              className="py-2.5 rounded-xl text-sm font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors">
+              No, Cancel
+            </button>
+            <button onClick={() => handleForceClockout(true)}
+              className="py-2.5 rounded-xl text-sm font-bold bg-blue-900 text-white hover:bg-blue-800 transition-colors">
+              Yes, Clock Out
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {reportBtn}</>
   );
 
   // ── On Break ──────────────────────────────────────────────────────────────
@@ -375,7 +558,7 @@ export default function AttendanceTab({ isMobile }) {
     const overMs    = Math.max(0, breakMs() - limitMs);
 
     return (
-      <div className={wrapCls}>
+      <><div className={wrapCls}>
         {/* Break limit alert */}
         {breakAlert === 'exceeded' && (
           <div className="bg-red-50 border-2 border-red-400 rounded-2xl p-4 space-y-2 shadow">
@@ -412,6 +595,38 @@ export default function AttendanceTab({ isMobile }) {
           </div>
         )}
 
+        {/* Messages panel (on break) */}
+        {unreadCount > 0 && (
+          <div className="bg-white rounded-2xl shadow p-4 space-y-2">
+            <button
+              onClick={() => setShowMessages(v => !v)}
+              className="w-full flex items-center justify-between text-sm font-bold text-blue-900"
+            >
+              <span>📬 Messages ({unreadCount})</span>
+              <span className="text-xs text-gray-400">{showMessages ? '▲ Hide' : '▼ Show'}</span>
+            </button>
+            {showMessages && (
+              <div className="space-y-2 pt-1">
+                {messages.map(m => (
+                  <div key={m.id} className="bg-blue-50 border border-blue-100 rounded-xl p-3 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-blue-900">{m.from}</span>
+                      <span className="text-xs text-gray-400">{m.timestamp}</span>
+                    </div>
+                    <p className="text-sm text-gray-700">{m.message}</p>
+                    <button
+                      onClick={() => handleDismissMessage(m.id)}
+                      className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="bg-white rounded-2xl shadow p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-gray-800">🕐 Attendance Log</h3>
@@ -443,17 +658,85 @@ export default function AttendanceTab({ isMobile }) {
           </button>
         </div>
         <p className="text-xs text-gray-400 text-center">{att.agentName} · Clocked in at {att.clockInPhTime}</p>
-      </div>
+      </div>{reportBtn}</>
     );
   }
 
   // ── Working ───────────────────────────────────────────────────────────────
+  const remainingCapMs = effectiveCapMs ? Math.max(0, effectiveCapMs - workMs()) : null;
+
   return (
-    <div className={wrapCls}>
+    <><div className={wrapCls}>
+
+      {/* ── Nearing cap warning banner ───────────────────────────────────── */}
+      {nearingCap && (
+        <div className="bg-amber-50 border-2 border-amber-400 rounded-2xl p-4 space-y-3 shadow">
+          <p className="text-sm font-bold text-amber-700">
+            ⚠️ Approaching daily limit ({fmtHuman(remainingCapMs)} remaining)
+          </p>
+          <p className="text-xs text-amber-600">
+            You are nearing your {fmtHuman(capMs)} daily cap
+            {att.employeeType ? ` (${att.employeeType})` : ''}.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setShowClockOutConfirm(false); handleClockOut(); }}
+              disabled={status === 'sending'}
+              className="flex-1 bg-red-600 text-white py-2.5 rounded-xl text-xs font-bold hover:bg-red-700 disabled:opacity-40 transition-colors"
+            >
+              Clock Out Now
+            </button>
+            <button
+              onClick={handleOvertimeContinue}
+              className="flex-1 bg-orange-500 text-white py-2.5 rounded-xl text-xs font-bold hover:bg-orange-600 transition-colors"
+            >
+              🕐 Continue with Overtime (+8 hrs)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Messages panel ───────────────────────────────────────────────── */}
+      {unreadCount > 0 && (
+        <div className="bg-white rounded-2xl shadow p-4 space-y-2">
+          <button
+            onClick={() => setShowMessages(v => !v)}
+            className="w-full flex items-center justify-between text-sm font-bold text-blue-900"
+          >
+            <span>📬 Messages ({unreadCount})</span>
+            <span className="text-xs text-gray-400">{showMessages ? '▲ Hide' : '▼ Show'}</span>
+          </button>
+          {showMessages && (
+            <div className="space-y-2 pt-1">
+              {messages.map(m => (
+                <div key={m.id} className="bg-blue-50 border border-blue-100 rounded-xl p-3 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-blue-900">{m.from}</span>
+                    <span className="text-xs text-gray-400">{m.timestamp}</span>
+                  </div>
+                  <p className="text-sm text-gray-700">{m.message}</p>
+                  <button
+                    onClick={() => handleDismissMessage(m.id)}
+                    className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl shadow p-5 space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-gray-800">🕐 Attendance Log</h3>
-          <span className="text-xs font-semibold text-green-600 bg-green-50 border border-green-200 rounded-full px-2.5 py-0.5">Working</span>
+          <div className="flex items-center gap-2">
+            {overtimeActive && (
+              <span className="text-xs font-semibold text-orange-600 bg-orange-50 border border-orange-200 rounded-full px-2.5 py-0.5">OT</span>
+            )}
+            <span className="text-xs font-semibold text-green-600 bg-green-50 border border-green-200 rounded-full px-2.5 py-0.5">Working</span>
+          </div>
         </div>
 
         {/* Live Work Timer */}
@@ -461,6 +744,13 @@ export default function AttendanceTab({ isMobile }) {
           <p className="text-xs text-green-600 font-medium">Total work time</p>
           <p className="text-4xl font-mono font-bold text-green-800 tracking-widest mt-1">{fmtDuration(workMs())}</p>
           <p className="text-xs text-gray-400 mt-1">{att.agentName} · In at {att.clockInPhTime}</p>
+          {effectiveCapMs && (
+            <p className="text-xs text-gray-400 mt-0.5">
+              Cap: {fmtHuman(effectiveCapMs)}
+              {overtimeActive ? ' (with OT)' : ''}
+              {' · '}{fmtHuman(remainingCapMs)} left
+            </p>
+          )}
         </div>
 
         {/* Break Picker */}
@@ -541,6 +831,6 @@ export default function AttendanceTab({ isMobile }) {
         )}
         {status === 'error' && <p className="text-red-500 text-xs text-center">Failed. Please try again.</p>}
       </div>
-    </div>
+    </div>{reportBtn}</>
   );
 }
