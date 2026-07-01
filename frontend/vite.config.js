@@ -9,11 +9,25 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['farmoutusalogo.png', 'icon.svg'],
       workbox: {
+        // Don't precache-and-serve index.html as the offline app shell — that's
+        // what was causing staff to see a stale deploy after visiting the site.
+        // Navigation now always tries the network first (see runtimeCaching below).
+        navigateFallback: null,
         runtimeCaching: [
           {
             // Never cache Apps Script requests — each submission must hit the network
             urlPattern: /^https:\/\/script\.google\.com\/.*/i,
             handler: 'NetworkOnly',
+          },
+          {
+            // Page loads: always try the network first so staff get the latest
+            // deploy immediately. Only fall back to the cached shell if offline.
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'pages',
+              networkTimeoutSeconds: 3,
+            },
           },
         ],
       },
