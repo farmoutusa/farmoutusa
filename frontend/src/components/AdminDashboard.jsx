@@ -326,6 +326,13 @@ export default function AdminDashboard({ onLogout }) {
   }
 
   // ── Message handlers ───────────────────────────────────────────────────────
+  function handleReplyTo(name) {
+    setMsgTo(name);
+    setMsgSendSuccess(false);
+    document.getElementById('admin-msg-compose')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    document.getElementById('admin-msg-compose')?.focus();
+  }
+
   async function handleSendMessage() {
     if (!msgText.trim()) return;
     setMsgSending(true); setMsgSendSuccess(false);
@@ -754,6 +761,7 @@ export default function AdminDashboard({ onLogout }) {
             <div>
               <label className="block text-xs text-gray-500 mb-1 font-medium">Message</label>
               <textarea
+                id="admin-msg-compose"
                 value={msgText}
                 onChange={e => { setMsgText(e.target.value); setMsgSendSuccess(false); }}
                 placeholder="Type your message to agents…"
@@ -799,6 +807,7 @@ export default function AdminDashboard({ onLogout }) {
                     <thead>
                       <tr className="text-xs text-gray-400 border-b border-gray-100">
                         <th className="text-left pb-2 font-medium px-1">Time</th>
+                        <th className="text-left pb-2 font-medium px-1">From</th>
                         <th className="text-left pb-2 font-medium px-1">To</th>
                         <th className="text-left pb-2 font-medium px-1">Message</th>
                         <th className="text-left pb-2 font-medium px-1">Read By</th>
@@ -809,17 +818,32 @@ export default function AdminDashboard({ onLogout }) {
                       {msgHistory.map(m => (
                         <tr key={m.id} className="hover:bg-gray-50">
                           <td className="py-2 text-xs text-gray-500 px-1 whitespace-nowrap">{m.timestamp}</td>
+                          <td className="py-2 text-xs font-semibold px-1 whitespace-nowrap">
+                            {m.from === 'Admin'
+                              ? <span className="text-blue-900">Admin</span>
+                              : <span className="text-orange-600">{m.from}</span>}
+                          </td>
                           <td className="py-2 text-xs font-semibold text-blue-900 px-1 whitespace-nowrap">{m.to}</td>
                           <td className="py-2 text-xs text-gray-700 px-1 max-w-xs truncate">{m.message}</td>
                           <td className="py-2 text-xs text-gray-400 px-1">{m.readBy || '—'}</td>
                           <td className="py-2 px-1">
-                            <button
-                              onClick={() => handleDeleteMessage(m.id)}
-                              disabled={msgDeleting === m.id}
-                              className="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-0.5 rounded-lg transition-colors disabled:opacity-40"
-                            >
-                              {msgDeleting === m.id ? '…' : 'Delete'}
-                            </button>
+                            <div className="flex gap-1.5 whitespace-nowrap">
+                              {m.from !== 'Admin' && (
+                                <button
+                                  onClick={() => handleReplyTo(m.from)}
+                                  className="text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2 py-0.5 rounded-lg transition-colors"
+                                >
+                                  ↩ Reply
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleDeleteMessage(m.id)}
+                                disabled={msgDeleting === m.id}
+                                className="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-0.5 rounded-lg transition-colors disabled:opacity-40"
+                              >
+                                {msgDeleting === m.id ? '…' : 'Delete'}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

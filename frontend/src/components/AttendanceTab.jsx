@@ -112,6 +112,16 @@ async function log(payload) {
   });
 }
 
+function StaffStatusDot({ status }) {
+  const cfg = {
+    working:     { cls: 'text-green-600', dot: '🟢', label: 'Online'   },
+    on_break:    { cls: 'text-amber-600', dot: '🟡', label: 'On Break' },
+    clocked_out: { cls: 'text-gray-400',  dot: '⚪', label: 'Offline'  },
+  }[status] || { cls: 'text-gray-300', dot: '—', label: 'Unknown' };
+
+  return <span className={`text-xs font-semibold whitespace-nowrap ${cfg.cls}`}>{cfg.dot} {cfg.label}</span>;
+}
+
 function fetchJsonp(params, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
     const cb = '__att_' + Date.now() + '_' + Math.random().toString(36).slice(2);
@@ -151,6 +161,17 @@ export default function AttendanceTab({ isMobile }) {
   const [messages,            setMessages]            = useState([]);
   const [showMessages,        setShowMessages]        = useState(false);
   const [forceClockoutPrompt, setForceClockoutPrompt] = useState(false);
+
+  // Reply-to-message + message-admin composer
+  const [replyDrafts,   setReplyDrafts]   = useState({}); // { [msgId]: text }
+  const [replySending,  setReplySending]  = useState(null); // msgId currently sending
+  const [composeText,   setComposeText]   = useState('');
+  const [composeSending, setComposeSending] = useState(false);
+  const [composeSuccess, setComposeSuccess] = useState(false);
+
+  // Live Staff Status
+  const [staffStatus,        setStaffStatus]        = useState([]);
+  const [staffStatusLoading, setStaffStatusLoading]  = useState(true);
 
   const breakWarnedRef    = useRef(false);
   const breakExceededRef  = useRef(false);
@@ -258,6 +279,42 @@ export default function AttendanceTab({ isMobile }) {
     const id = setInterval(poll, 60000);
     return () => clearInterval(id);
   }, [att?.agentName, att?.phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Live Staff Status polling — public, works regardless of clock-in state
+  useEffect(() => {
+    function poll() {
+      fetchJsonp({ type: 'staff_status' })
+        .then(d => { if (d?.staff) setStaffStatus(d.staff); })
+        .catch(() => {})
+        .finally(() => setStaffStatusLoading(false));
+    }
+    poll();
+    const id = setInterval(poll, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  async function handleSendReply(msgId) {
+    const text = (replyDrafts[msgId] || '').trim();
+    if (!text || !att) return;
+    setReplySending(msgId);
+    try {
+      await fetchJsonp({ type: 'messages', action: 'send', from: att.agentName, to: 'Admin', message: text });
+      setReplyDrafts(prev => ({ ...prev, [msgId]: '' }));
+    } catch { /* silent */ }
+    finally { setReplySending(null); }
+  }
+
+  async function handleSendToAdmin() {
+    const text = composeText.trim();
+    if (!text || !att) return;
+    setComposeSending(true); setComposeSuccess(false);
+    try {
+      await fetchJsonp({ type: 'messages', action: 'send', from: att.agentName, to: 'Admin', message: text });
+      setComposeText('');
+      setComposeSuccess(true);
+    } catch { /* silent */ }
+    finally { setComposeSending(false); }
+  }
 
   function saveAtt(data) {
     if (data) localStorage.setItem(ATT_KEY, JSON.stringify(data));
@@ -415,6 +472,51 @@ export default function AttendanceTab({ isMobile }) {
 
   const wrapCls = `space-y-3 ${isMobile ? '' : 'max-w-lg mx-auto pt-1'}`;
 
+  const staffStatusPanel = (
+    <div className="bg-white rounded-2xl shadow p-4 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-bold text-gray-800">🟢 Live Staff Status</p>
+        {staffStatusLoading && <span className="text-xs text-gray-400">Loading…</span>}
+      </div>
+      {!staffStatusLoading && staffStatus.length === 0 && (
+        <p className="text-xs text-gray-400">No staff found.</p>
+      )}
+      {staffStatus.length > 0 && (
+        <ul className="divide-y divide-gray-50">
+          {staffStatus.map(s => (
+            <li key={s.name} className="flex items-center justify-between py-1.5">
+              <span className="text-sm text-gray-700">{s.name}</span>
+              <StaffStatusDot status={s.status} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+
+  const messageAdminPanel = (
+    <div className="bg-white rounded-2xl shadow p-4 space-y-2">
+      <p className="text-sm font-bold text-gray-800">✉️ Message Admin</p>
+      <textarea
+        value={composeText}
+        onChange={e => { setComposeText(e.target.value); setComposeSuccess(false); }}
+        placeholder="Send a message to the admin…"
+        rows={2}
+        className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+      />
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleSendToAdmin}
+          disabled={composeSending || !composeText.trim()}
+          className="bg-blue-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-800 disabled:opacity-40 transition-colors"
+        >
+          {composeSending ? 'Sending…' : '📤 Send to Admin'}
+        </button>
+        {composeSuccess && <span className="text-xs text-green-600 font-semibold">Sent!</span>}
+      </div>
+    </div>
+  );
+
   const reportBtn = screenshotAllowed ? (
     <button
       onClick={handleErrorReport}
@@ -449,6 +551,7 @@ export default function AttendanceTab({ isMobile }) {
   // ── Idle ──────────────────────────────────────────────────────────────────
   if (!att) return (
     <><div className={wrapCls}>
+      {staffStatusPanel}
       <div className="bg-white rounded-2xl shadow p-5 space-y-4">
         <h3 className="text-sm font-bold text-gray-800">🕐 Attendance Log</h3>
 
@@ -559,6 +662,8 @@ export default function AttendanceTab({ isMobile }) {
 
     return (
       <><div className={wrapCls}>
+        {staffStatusPanel}
+
         {/* Break limit alert */}
         {breakAlert === 'exceeded' && (
           <div className="bg-red-50 border-2 border-red-400 rounded-2xl p-4 space-y-2 shadow">
@@ -614,6 +719,21 @@ export default function AttendanceTab({ isMobile }) {
                       <span className="text-xs text-gray-400">{m.timestamp}</span>
                     </div>
                     <p className="text-sm text-gray-700">{m.message}</p>
+                    <div className="flex gap-2 pt-1">
+                      <input
+                        value={replyDrafts[m.id] || ''}
+                        onChange={e => setReplyDrafts(prev => ({ ...prev, [m.id]: e.target.value }))}
+                        placeholder="Type a reply…"
+                        className="flex-1 border border-blue-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      />
+                      <button
+                        onClick={() => handleSendReply(m.id)}
+                        disabled={replySending === m.id || !(replyDrafts[m.id] || '').trim()}
+                        className="text-xs bg-blue-600 text-white px-2.5 py-1 rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                      >
+                        {replySending === m.id ? '…' : 'Reply'}
+                      </button>
+                    </div>
                     <button
                       onClick={() => handleDismissMessage(m.id)}
                       className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
@@ -626,6 +746,8 @@ export default function AttendanceTab({ isMobile }) {
             )}
           </div>
         )}
+
+        {messageAdminPanel}
 
         <div className="bg-white rounded-2xl shadow p-5 space-y-4">
           <div className="flex items-center justify-between">
@@ -667,6 +789,7 @@ export default function AttendanceTab({ isMobile }) {
 
   return (
     <><div className={wrapCls}>
+      {staffStatusPanel}
 
       {/* ── Nearing cap warning banner ───────────────────────────────────── */}
       {nearingCap && (
@@ -715,6 +838,21 @@ export default function AttendanceTab({ isMobile }) {
                     <span className="text-xs text-gray-400">{m.timestamp}</span>
                   </div>
                   <p className="text-sm text-gray-700">{m.message}</p>
+                  <div className="flex gap-2 pt-1">
+                    <input
+                      value={replyDrafts[m.id] || ''}
+                      onChange={e => setReplyDrafts(prev => ({ ...prev, [m.id]: e.target.value }))}
+                      placeholder="Type a reply…"
+                      className="flex-1 border border-blue-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    />
+                    <button
+                      onClick={() => handleSendReply(m.id)}
+                      disabled={replySending === m.id || !(replyDrafts[m.id] || '').trim()}
+                      className="text-xs bg-blue-600 text-white px-2.5 py-1 rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                    >
+                      {replySending === m.id ? '…' : 'Reply'}
+                    </button>
+                  </div>
                   <button
                     onClick={() => handleDismissMessage(m.id)}
                     className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
@@ -727,6 +865,8 @@ export default function AttendanceTab({ isMobile }) {
           )}
         </div>
       )}
+
+      {messageAdminPanel}
 
       <div className="bg-white rounded-2xl shadow p-5 space-y-4">
         <div className="flex items-center justify-between">

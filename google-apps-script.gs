@@ -7,6 +7,10 @@ var SHEET_ID             = '1ai6NZwW2Inp3ta1uj48UTQeWMwXQfOBuU0iZP8tUFEM';
 var DEFAULT_ADMIN_KEY    = 'S26Ultr@';
 var DEFAULT_AGENT_KEY    = 'farmoutusavmtool';
 
+// Staff who should always appear "online" on the employee-facing Live Staff
+// Status panel, regardless of whether they've actually clocked in.
+var ALWAYS_ONLINE_STAFF  = ['Freddie Ramirez'];
+
 // Hour caps in milliseconds
 var HOUR_CAPS = { 'Full-time': 9 * 3600 * 1000, 'Part-time': 5 * 3600 * 1000 };
 
@@ -114,6 +118,10 @@ function doGet(e) {
 
     if (data.type === 'messages') {
       return handleMessages(data);
+    }
+
+    if (data.type === 'staff_status') {
+      return handleStaffStatus(data);
     }
 
     // ── Callback Log ──────────────────────────────────────────────────────
@@ -751,6 +759,19 @@ function handleMessages(data) {
       return jsonp({ messages: messages });
     }
 
+    // Agent-initiated message (reply to admin, or a fresh message to admin)
+    if (action === 'send') {
+      var fromName = String(data.from || '').trim();
+      var toName   = String(data.to || 'Admin').trim();
+      var bodyText = String(data.message || '').trim();
+      if (!fromName || !bodyText) return jsonp({ error: 'Missing name or message' });
+
+      var newMsgId = 'msg_' + new Date().getTime() + '_' + Math.floor(Math.random() * 9999);
+      var newMsgTs = Utilities.formatDate(new Date(), 'Asia/Manila', 'MM/dd/yyyy hh:mm:ss a');
+      sheet.appendRow([newMsgId, newMsgTs, fromName, toName, bodyText, '']);
+      return jsonp({ success: true, id: newMsgId });
+    }
+
     if (action === 'mark_read') {
       var msgId    = String(data.messageId || '').trim();
       var agentNm  = String(data.agentName || '').trim();
@@ -777,6 +798,74 @@ function handleMessages(data) {
   } catch (err) {
     return jsonp({ error: err.toString() });
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Live Staff Status — public, read-only view for the employee side. Shows a
+// simplified working/on_break/clocked_out status per staff member so agents
+// can see who else is online.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function handleStaffStatus(data) {
+  var cb = data.callback || 'callback';
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var staff = getStaffStatusList(ss);
+    return ContentService
+      .createTextOutput(cb + '(' + JSON.stringify({ staff: staff }) + ')')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  } catch (e) {
+    return ContentService
+      .createTextOutput(cb + '({"staff":[]})')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+}
+
+function getStaffStatusList(ss) {
+  var names = getStaffNames(ss);
+  var attSheet = ss.getSheetByName('Attendance Log');
+  var statusMap = {};
+
+  if (attSheet && attSheet.getLastRow() > 1) {
+    var nowMs    = new Date().getTime();
+    var cutoffMs = nowMs - 48 * 60 * 60 * 1000; // same night-shift window as the admin dashboard
+    var rows = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 11).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      var r      = rows[i];
+      var epoch  = Number(r[10]);
+      if (!epoch || epoch < cutoffMs) continue;
+      var agent  = String(r[1]);
+      var action = String(r[2]);
+      if (action === 'CLOCK_IN')    statusMap[agent] = 'working';
+      if (action === 'BREAK_START') statusMap[agent] = 'on_break';
+      if (action === 'RESUME')      statusMap[agent] = 'working';
+      if (action === 'CLOCK_OUT')   statusMap[agent] = 'clocked_out';
+    }
+  }
+
+  var list = names.map(function(name) {
+    return { name: name, status: statusMap[name] || 'clocked_out' };
+  });
+
+  // Force certain staff to always appear online/working, whether or not
+  // they've actually clocked in.
+  ALWAYS_ONLINE_STAFF.forEach(function(fakeName) {
+    var found = false;
+    for (var j = 0; j < list.length; j++) {
+      if (list[j].name.toLowerCase() === fakeName.toLowerCase()) {
+        list[j].status = 'working';
+        found = true;
+        break;
+      }
+    }
+    if (!found) list.push({ name: fakeName, status: 'working' });
+  });
+
+  var order = { working: 0, on_break: 1, clocked_out: 2 };
+  return list.sort(function(a, b) {
+    if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
+    return a.name.localeCompare(b.name);
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
