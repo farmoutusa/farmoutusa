@@ -152,6 +152,7 @@ export default function AttendanceTab({ isMobile }) {
   const [otherReason,         setOtherReason]         = useState('');
   const [lastClockOut,        setLastClockOut]        = useState(null);
   const [photoRequired,       setPhotoRequired]       = useState(false);
+  const [screenCapturing,     setScreenCapturing]     = useState(false);
   const [tick,                setTick]                = useState(0);
   const [breakAlert,          setBreakAlert]          = useState(null); // null | 'warning' | 'exceeded'
   const [showClockOutConfirm, setShowClockOutConfirm] = useState(false);
@@ -470,6 +471,39 @@ export default function AttendanceTab({ isMobile }) {
     setPhotoRequired(false);
   }
 
+  // PC only — lets the user pick a specific app window (e.g. Kayako, Vonage) or
+  // the entire screen via the browser's native screen-share picker, grabs a
+  // single frame, and auto-attaches it as the required screenshot.
+  async function handleScreenCapture() {
+    if (screenCapturing) return;
+    setScreenCapturing(true);
+    let stream = null;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: 'never' } });
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      await video.play();
+      await new Promise(r => setTimeout(r, 200)); // let the first real frame render
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+      if (blob) {
+        const file = new File([blob], `screen_snapshot_${Date.now()}.jpg`, { type: 'image/jpeg' });
+        setScreenshot({ file, preview: URL.createObjectURL(blob) });
+        setPhotoRequired(false);
+      }
+    } catch (err) {
+      if (err?.name !== 'NotAllowedError') {
+        alert('Could not capture the screen. Please choose a file instead.');
+      }
+    } finally {
+      stream?.getTracks().forEach(t => t.stop());
+      setScreenCapturing(false);
+    }
+  }
+
   const wrapCls = `space-y-3 ${isMobile ? '' : 'max-w-lg mx-auto pt-1'}`;
 
   const staffStatusPanel = (
@@ -580,6 +614,11 @@ export default function AttendanceTab({ isMobile }) {
           <label className="block text-xs font-medium text-gray-600 mb-1">
             Kayako + VoIP app screenshot <span className="text-red-500 font-normal">*required</span>
           </label>
+          {!isMobile && (
+            <p className="text-[11px] text-gray-400 mb-1.5">
+              Screen Snapshot lets you pick the Kayako/Vonage window (or entire screen) from your browser's share picker.
+            </p>
+          )}
           <div className={`border-2 border-dashed rounded-xl p-3 transition-colors ${
             photoRequired ? 'border-red-400 bg-red-50' : 'border-gray-200'
           }`}>
@@ -591,7 +630,7 @@ export default function AttendanceTab({ isMobile }) {
                   className="text-xs text-red-400 hover:text-red-600 shrink-0">✕ Remove</button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-2">
+              <div className={`grid gap-2 ${isMobile ? 'grid-cols-2' : 'grid-cols-3'}`}>
                 <label className="flex items-center justify-center gap-1.5 cursor-pointer bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg py-2 px-3 transition-colors">
                   <span className="text-base">📷</span>
                   <span className={`text-xs font-medium ${photoRequired ? 'text-red-500' : 'text-blue-700'}`}>Open Camera</span>
@@ -602,6 +641,19 @@ export default function AttendanceTab({ isMobile }) {
                   <span className={`text-xs font-medium ${photoRequired ? 'text-red-500' : 'text-gray-600'}`}>Choose File</span>
                   <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
                 </label>
+                {!isMobile && (
+                  <button
+                    type="button"
+                    onClick={handleScreenCapture}
+                    disabled={screenCapturing}
+                    className="flex items-center justify-center gap-1.5 cursor-pointer bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg py-2 px-3 transition-colors disabled:opacity-50"
+                  >
+                    <span className="text-base">🖥️</span>
+                    <span className={`text-xs font-medium ${photoRequired ? 'text-red-500' : 'text-purple-700'}`}>
+                      {screenCapturing ? 'Capturing…' : 'Screen Snapshot'}
+                    </span>
+                  </button>
+                )}
               </div>
             )}
           </div>
