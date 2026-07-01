@@ -104,7 +104,7 @@ function PasswordGate({ onUnlock, onAdminUnlock }) {
       <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm border-t-4 border-orange-500">
         <div className="text-center mb-6">
           <img src="/farmoutusalogo.png" alt="farmout usa" className="w-56 mx-auto mt-4" />
-          <p className="text-xs text-gray-300 mt-1">v3.0</p>
+          <p className="text-xs text-gray-300 mt-1">v4.0</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -290,7 +290,7 @@ export default function App() {
         {' '}|{' '}
         <span className="font-semibold text-gray-500">+639479984309</span>
         {' '}|{' '}
-        <span className="text-gray-300">v3.0</span>
+        <span className="text-gray-300">v4.0</span>
       </footer>
 
       {canInstall && (
