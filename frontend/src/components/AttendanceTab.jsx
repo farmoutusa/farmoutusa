@@ -145,7 +145,7 @@ export default function AttendanceTab({ isMobile }) {
   const [staffList,           setStaffList]           = useState([]);
   const [staffLoading,        setStaffLoading]        = useState(true);
   const [screenshotAllowed,   setScreenshotAllowed]   = useState(false);
-  const [screenshot,          setScreenshot]          = useState(null);
+  const [screenshots,         setScreenshots]         = useState([]);
   const [status,              setStatus]              = useState('idle');
   const [showBreakPicker,     setShowBreakPicker]     = useState(false);
   const [pendingOther,        setPendingOther]        = useState(false);
@@ -349,12 +349,12 @@ export default function AttendanceTab({ isMobile }) {
 
   async function handleClockIn() {
     if (!agentName.trim()) { alert('Enter your name first.'); return; }
-    if (!screenshot) { setPhotoRequired(true); return; }
+    if (!screenshots.length) { setPhotoRequired(true); return; }
     setPhotoRequired(false);
     setStatus('sending');
-    const [info, b64] = await Promise.all([
+    const [info, ...b64s] = await Promise.all([
       getClientInfo(),
-      screenshot ? compressToThumb(screenshot.file) : Promise.resolve(''),
+      ...screenshots.map(s => compressToThumb(s.file)),
     ]);
     const ts = Date.now(), phTime = fmtNow();
     const name = agentName.trim();
@@ -376,8 +376,10 @@ export default function AttendanceTab({ isMobile }) {
         }
         throw new Error(result?.error || 'GAS rejected the request');
       }
-      // Screenshot sent separately (fire-and-forget, supplementary)
-      if (b64) log({ ...basePayload, screenshot: b64 });
+      // Screenshots sent separately (fire-and-forget, supplementary)
+      b64s.forEach((b64, idx) => {
+        if (b64) log({ ...basePayload, screenshot: b64, ...(b64s.length > 1 ? { screenshotNum: idx + 1, screenshotOf: b64s.length } : {}) });
+      });
       localStorage.setItem('cwc_agent_name', name);
       setOvertimeActive(false);
       autoLogoutFiredRef.current = false;
@@ -388,7 +390,7 @@ export default function AttendanceTab({ isMobile }) {
         dailyCapMs:   result.dailyCapMs   || null,
       });
       setStatus('idle');
-      setScreenshot(null);
+      setScreenshots([]);
     } catch { setStatus('error'); }
   }
 
@@ -467,8 +469,9 @@ export default function AttendanceTab({ isMobile }) {
   function handleFileChange(e) {
     const file = e.target.files[0];
     if (!file) return;
-    setScreenshot({ file, preview: URL.createObjectURL(file) });
+    setScreenshots(prev => [...prev, { file, preview: URL.createObjectURL(file) }]);
     setPhotoRequired(false);
+    e.target.value = '';
   }
 
   // PC only — lets the user pick a specific app window (e.g. Kayako, Vonage) or
@@ -491,7 +494,7 @@ export default function AttendanceTab({ isMobile }) {
       const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
       if (blob) {
         const file = new File([blob], `screen_snapshot_${Date.now()}.jpg`, { type: 'image/jpeg' });
-        setScreenshot({ file, preview: URL.createObjectURL(blob) });
+        setScreenshots(prev => [...prev, { file, preview: URL.createObjectURL(blob) }]);
         setPhotoRequired(false);
       }
     } catch (err) {
@@ -616,18 +619,48 @@ export default function AttendanceTab({ isMobile }) {
           </label>
           {!isMobile && (
             <p className="text-[11px] text-gray-400 mb-1.5">
-              Click <strong>Screen Snapshot</strong> → pick the Kayako or Vonage window (or your full desktop) from the browser picker — it attaches automatically.
+              Click <strong>Screen Snapshot</strong> to pick a window or screen — click it again to add more screens.
             </p>
           )}
           <div className={`border-2 border-dashed rounded-xl p-3 transition-colors ${
             photoRequired ? 'border-red-400 bg-red-50' : 'border-gray-200'
           }`}>
-            {screenshot ? (
-              <div className="flex items-center gap-2">
-                <span className="text-xl">📎</span>
-                <span className="text-xs truncate text-gray-500 flex-1">{screenshot.file.name}</span>
-                <button type="button" onClick={() => setScreenshot(null)}
-                  className="text-xs text-red-400 hover:text-red-600 shrink-0">✕ Remove</button>
+            {screenshots.length > 0 ? (
+              <div className="space-y-2">
+                {screenshots.map((s, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="text-base">📎</span>
+                    <span className="text-xs truncate text-gray-500 flex-1">{s.file.name}</span>
+                    <button type="button" onClick={() => setScreenshots(prev => prev.filter((_, j) => j !== i))}
+                      className="text-xs text-red-400 hover:text-red-600 shrink-0">✕</button>
+                  </div>
+                ))}
+                {!isMobile ? (
+                  <button
+                    type="button"
+                    onClick={handleScreenCapture}
+                    disabled={screenCapturing}
+                    className="w-full flex items-center justify-center gap-1.5 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg py-1.5 px-3 transition-colors disabled:opacity-50"
+                  >
+                    <span className="text-sm">🖥️</span>
+                    <span className="text-xs font-medium text-purple-700">
+                      {screenCapturing ? 'Capturing…' : '+ Add Another Screen'}
+                    </span>
+                  </button>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex items-center justify-center gap-1.5 cursor-pointer bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg py-1.5 px-3 transition-colors">
+                      <span className="text-sm">📷</span>
+                      <span className="text-xs font-medium text-blue-700">+ Camera</span>
+                      <input type="file" accept="image/*" capture="environment" onChange={handleFileChange} className="hidden" />
+                    </label>
+                    <label className="flex items-center justify-center gap-1.5 cursor-pointer bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg py-1.5 px-3 transition-colors">
+                      <span className="text-sm">🖼️</span>
+                      <span className="text-xs font-medium text-gray-600">+ File</span>
+                      <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                    </label>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-2">
@@ -661,8 +694,13 @@ export default function AttendanceTab({ isMobile }) {
               </div>
             )}
           </div>
-          {screenshot && (
-            <img src={screenshot.preview} alt="Preview" className="mt-2 rounded-xl w-full max-h-48 object-contain bg-gray-50 border border-gray-200" />
+          {screenshots.length > 0 && (
+            <div className={`mt-2 grid gap-2 ${screenshots.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              {screenshots.map((s, i) => (
+                <img key={i} src={s.preview} alt={`Screenshot ${i + 1}`}
+                  className="rounded-xl w-full max-h-48 object-contain bg-gray-50 border border-gray-200" />
+              ))}
+            </div>
           )}
           {photoRequired && (
             <div className="mt-2 bg-red-50 border border-red-300 rounded-xl px-3 py-2.5">
