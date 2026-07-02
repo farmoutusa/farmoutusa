@@ -708,7 +708,7 @@ function getOrCreateMessagesSheet(ss) {
   var sheet = ss.getSheetByName('Messages');
   if (!sheet) {
     sheet = ss.insertSheet('Messages');
-    var hdrs = ['ID', 'Timestamp', 'From', 'To', 'Message', 'Read_By'];
+    var hdrs = ['ID', 'Timestamp', 'From', 'To', 'Message', 'Read_By', 'Epoch_ms'];
     sheet.appendRow(hdrs);
     sheet.getRange(1, 1, 1, hdrs.length)
       .setFontWeight('bold').setBackground('#1e3a8a').setFontColor('#ffffff');
@@ -766,9 +766,10 @@ function handleMessages(data) {
       var bodyText = String(data.message || '').trim();
       if (!fromName || !bodyText) return jsonp({ error: 'Missing name or message' });
 
-      var newMsgId = 'msg_' + new Date().getTime() + '_' + Math.floor(Math.random() * 9999);
-      var newMsgTs = Utilities.formatDate(new Date(), 'Asia/Manila', 'MM/dd/yyyy hh:mm:ss a');
-      sheet.appendRow([newMsgId, newMsgTs, fromName, toName, bodyText, '']);
+      var newMsgId  = 'msg_' + new Date().getTime() + '_' + Math.floor(Math.random() * 9999);
+      var nowAgent  = new Date();
+      var newMsgTs  = Utilities.formatDate(nowAgent, 'Asia/Manila', 'MM/dd/yyyy hh:mm:ss a');
+      sheet.appendRow([newMsgId, newMsgTs, fromName, toName, bodyText, '', nowAgent.getTime()]);
       return jsonp({ success: true, id: newMsgId });
     }
 
@@ -1059,8 +1060,9 @@ function handleAdminRequest(data) {
     if (data.action === 'send_message') {
       var msgSheet = getOrCreateMessagesSheet(ss);
       var msgId    = 'msg_' + new Date().getTime() + '_' + Math.floor(Math.random() * 9999);
-      var msgTs    = Utilities.formatDate(new Date(), 'Asia/Manila', 'MM/dd/yyyy hh:mm:ss a');
-      msgSheet.appendRow([msgId, msgTs, 'Admin', data.to || 'All', data.message || '', '']);
+      var nowMsg   = new Date();
+      var msgTs    = Utilities.formatDate(nowMsg, 'Asia/Manila', 'MM/dd/yyyy hh:mm:ss a');
+      msgSheet.appendRow([msgId, msgTs, 'Admin', data.to || 'All', data.message || '', '', nowMsg.getTime()]);
       return jsonp({ success: true, id: msgId });
     }
 
@@ -1068,12 +1070,20 @@ function handleAdminRequest(data) {
       var msgSheet2 = ss.getSheetByName('Messages');
       if (!msgSheet2 || msgSheet2.getLastRow() < 2) return jsonp({ messages: [] });
       var cutoffMs  = new Date().getTime() - 7 * 24 * 60 * 60 * 1000;
-      var allRows   = msgSheet2.getRange(2, 1, msgSheet2.getLastRow() - 1, 6).getValues();
+      // Read 7 columns: col 7 (index 6) is Epoch_ms added for reliable date comparison.
+      // Old rows without col 7 return '' which becomes 0 via Number() — handled by fallback.
+      var allRows   = msgSheet2.getRange(2, 1, msgSheet2.getLastRow() - 1, 7).getValues();
       var recent    = [];
       for (var mi = allRows.length - 1; mi >= 0; mi--) {
-        var rowTs = allRows[mi][1];
-        var rowEpoch2 = rowTs instanceof Date ? rowTs.getTime() : new Date(String(rowTs)).getTime();
-        if (rowEpoch2 < cutoffMs) continue;
+        var rowTs     = allRows[mi][1];
+        var epochCol  = Number(allRows[mi][6]);
+        if (epochCol > 0) {
+          // New rows: use stored epoch — immune to Sheets locale date reinterpretation.
+          // Filter to 7-day window.
+          if (epochCol < cutoffMs) continue;
+        }
+        // Old rows (no epoch column): always include — the stored timestamp string may
+        // have been misinterpreted by Sheets (locale-dependent) so we can't trust it.
         recent.push({
           id:        String(allRows[mi][0]),
           timestamp: fmtSheetVal(allRows[mi][1]),

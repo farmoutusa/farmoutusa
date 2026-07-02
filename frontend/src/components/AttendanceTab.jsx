@@ -210,7 +210,7 @@ export default function AttendanceTab({ isMobile }) {
     const statusLabel = { working: 'Working', on_break: 'On Break', idle: 'Idle' };
     const lines = [
       '=== FARMOUTUSA VM ERROR REPORT ===',
-      'App: v2.0',
+      'App: v4.0',
       'Time: ' + fmtNow(),
       'Agent: ' + (att?.agentName || agentName || '—'),
       'Status: ' + (statusLabel[att?.phase] || 'Idle'),
@@ -616,7 +616,7 @@ export default function AttendanceTab({ isMobile }) {
           </label>
           {!isMobile && (
             <p className="text-[11px] text-gray-400 mb-1.5">
-              Screen Snapshot lets you pick the Kayako/Vonage window (or entire screen) from your browser's share picker.
+              Click <strong>Screen Snapshot</strong> → pick the Kayako or Vonage window (or your full desktop) from the browser picker — it attaches automatically.
             </p>
           )}
           <div className={`border-2 border-dashed rounded-xl p-3 transition-colors ${
@@ -630,23 +630,21 @@ export default function AttendanceTab({ isMobile }) {
                   className="text-xs text-red-400 hover:text-red-600 shrink-0">✕ Remove</button>
               </div>
             ) : (
-              <div className={`grid gap-2 ${isMobile ? 'grid-cols-2' : 'grid-cols-3'}`}>
-                <label className="flex items-center justify-center gap-1.5 cursor-pointer bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg py-2 px-3 transition-colors">
-                  <span className="text-base">📷</span>
-                  <span className={`text-xs font-medium ${photoRequired ? 'text-red-500' : 'text-blue-700'}`}>Open Camera</span>
-                  <input type="file" accept="image/*" capture="environment" onChange={handleFileChange} className="hidden" />
-                </label>
-                <label className="flex items-center justify-center gap-1.5 cursor-pointer bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg py-2 px-3 transition-colors">
-                  <span className="text-base">🖼️</span>
-                  <span className={`text-xs font-medium ${photoRequired ? 'text-red-500' : 'text-gray-600'}`}>Choose File</span>
-                  <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
-                </label>
-                {!isMobile && (
+              <div className="grid grid-cols-2 gap-2">
+                {isMobile ? (
+                  /* Mobile: open device camera */
+                  <label className="flex items-center justify-center gap-1.5 cursor-pointer bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg py-2 px-3 transition-colors">
+                    <span className="text-base">📷</span>
+                    <span className={`text-xs font-medium ${photoRequired ? 'text-red-500' : 'text-blue-700'}`}>Open Camera</span>
+                    <input type="file" accept="image/*" capture="environment" onChange={handleFileChange} className="hidden" />
+                  </label>
+                ) : (
+                  /* PC: screen/window capture via browser share picker */
                   <button
                     type="button"
                     onClick={handleScreenCapture}
                     disabled={screenCapturing}
-                    className="flex items-center justify-center gap-1.5 cursor-pointer bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg py-2 px-3 transition-colors disabled:opacity-50"
+                    className="flex items-center justify-center gap-1.5 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg py-2 px-3 transition-colors disabled:opacity-50"
                   >
                     <span className="text-base">🖥️</span>
                     <span className={`text-xs font-medium ${photoRequired ? 'text-red-500' : 'text-purple-700'}`}>
@@ -654,6 +652,12 @@ export default function AttendanceTab({ isMobile }) {
                     </span>
                   </button>
                 )}
+                {/* Both PC and mobile: attach an existing file */}
+                <label className="flex items-center justify-center gap-1.5 cursor-pointer bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg py-2 px-3 transition-colors">
+                  <span className="text-base">🖼️</span>
+                  <span className={`text-xs font-medium ${photoRequired ? 'text-red-500' : 'text-gray-600'}`}>Choose File</span>
+                  <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                </label>
               </div>
             )}
           </div>

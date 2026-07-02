@@ -301,7 +301,7 @@ export default function App() {
               <img src="/farmoutusalogo.png" alt="" className="h-7" />
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-bold truncate">Install Callback VM System</p>
+              <p className="text-sm font-bold truncate">Install Farmoutusa</p>
               <p className="text-xs text-blue-300">Add to home screen for quick access</p>
             </div>
           </div>

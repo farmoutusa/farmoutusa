@@ -32,9 +32,9 @@ export default defineConfig({
         ],
       },
       manifest: {
-        name: 'Callback VM System',
-        short_name: 'CallbackVM',
-        description: 'Phone timezone callback window checker — Farmoutusa',
+        name: 'Farmoutusa',
+        short_name: 'Farmoutusa',
+        description: 'Attendance & callback window checker — Farmoutusa',
         theme_color: '#1e3a8a',
         background_color: '#ffffff',
         display: 'standalone',
