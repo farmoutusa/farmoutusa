@@ -121,6 +121,8 @@ export default function AdminDashboard({ onLogout }) {
   const [msgHistoryLoading,  setMsgHistoryLoading]  = useState(false);
   const [msgHistoryError,    setMsgHistoryError]    = useState(null);
   const [msgDeleting,        setMsgDeleting]        = useState(null); // id being deleted
+  const [selectedMsgs,       setSelectedMsgs]       = useState(new Set());
+  const [bulkDeleting,       setBulkDeleting]       = useState(false);
 
   async function handleAdminClockOut(agentName) {
     if (!window.confirm(`Manually clock out ${agentName}? This will end their current session.`)) return;
@@ -364,8 +366,29 @@ export default function AdminDashboard({ onLogout }) {
       const data = await fetchAdmin('delete_message', { id });
       if (data.error) return;
       setMsgHistory(prev => prev ? prev.filter(m => m.id !== id) : prev);
+      setSelectedMsgs(prev => { const s = new Set(prev); s.delete(id); return s; });
     } catch {}
     finally { setMsgDeleting(null); }
+  }
+
+  async function handleBulkDelete() {
+    if (!selectedMsgs.size) return;
+    if (!window.confirm(`Delete ${selectedMsgs.size} selected message${selectedMsgs.size > 1 ? 's' : ''}?`)) return;
+    setBulkDeleting(true);
+    const ids = [...selectedMsgs];
+    await Promise.all(ids.map(id => fetchAdmin('delete_message', { id }).catch(() => {})));
+    setMsgHistory(prev => prev ? prev.filter(m => !ids.includes(m.id)) : prev);
+    setSelectedMsgs(new Set());
+    setBulkDeleting(false);
+  }
+
+  function toggleSelectMsg(id) {
+    setSelectedMsgs(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  }
+
+  function toggleSelectAll() {
+    if (!msgHistory) return;
+    setSelectedMsgs(prev => prev.size === msgHistory.length ? new Set() : new Set(msgHistory.map(m => m.id)));
   }
 
   const maxHours = rangeData?.agents?.length ? Math.max(...rangeData.agents.map(a => a.totalHours), 1) : 1;
@@ -786,13 +809,24 @@ export default function AdminDashboard({ onLogout }) {
 
           {/* Sent message history */}
           <div className="border-t border-gray-100 pt-3 space-y-2">
-            <button
-              onClick={handleLoadMsgHistory}
-              disabled={msgHistoryLoading}
-              className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40"
-            >
-              {msgHistoryLoading ? 'Loading…' : msgHistory ? '↻ Refresh History' : 'View Sent Messages'}
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handleLoadMsgHistory}
+                disabled={msgHistoryLoading}
+                className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+              >
+                {msgHistoryLoading ? 'Loading…' : msgHistory ? '↻ Refresh History' : 'View Sent Messages'}
+              </button>
+              {selectedMsgs.size > 0 && (
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={bulkDeleting}
+                  className="text-xs bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40 font-semibold"
+                >
+                  {bulkDeleting ? 'Deleting…' : `🗑 Delete Selected (${selectedMsgs.size})`}
+                </button>
+              )}
+            </div>
 
             {msgHistoryError && (
               <p className="text-xs text-red-500 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{msgHistoryError}</p>
@@ -806,6 +840,14 @@ export default function AdminDashboard({ onLogout }) {
                   <table className="w-full text-sm min-w-[480px]">
                     <thead>
                       <tr className="text-xs text-gray-400 border-b border-gray-100">
+                        <th className="pb-2 px-1">
+                          <input
+                            type="checkbox"
+                            checked={msgHistory.length > 0 && selectedMsgs.size === msgHistory.length}
+                            onChange={toggleSelectAll}
+                            className="accent-red-600 cursor-pointer"
+                          />
+                        </th>
                         <th className="text-left pb-2 font-medium px-1">Time</th>
                         <th className="text-left pb-2 font-medium px-1">From</th>
                         <th className="text-left pb-2 font-medium px-1">To</th>
@@ -816,7 +858,15 @@ export default function AdminDashboard({ onLogout }) {
                     </thead>
                     <tbody className="divide-y divide-gray-50">
                       {msgHistory.map(m => (
-                        <tr key={m.id} className="hover:bg-gray-50">
+                        <tr key={m.id} className={`hover:bg-gray-50 ${selectedMsgs.has(m.id) ? 'bg-red-50' : ''}`}>
+                          <td className="py-2 px-1">
+                            <input
+                              type="checkbox"
+                              checked={selectedMsgs.has(m.id)}
+                              onChange={() => toggleSelectMsg(m.id)}
+                              className="accent-red-600 cursor-pointer"
+                            />
+                          </td>
                           <td className="py-2 text-xs text-gray-500 px-1 whitespace-nowrap">{m.timestamp}</td>
                           <td className="py-2 text-xs font-semibold px-1 whitespace-nowrap">
                             {m.from === 'Admin'
