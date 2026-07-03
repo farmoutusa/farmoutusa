@@ -170,6 +170,7 @@ export default function AttendanceTab({ isMobile }) {
   const [composeText,   setComposeText]   = useState('');
   const [composeSending, setComposeSending] = useState(false);
   const [composeSuccess, setComposeSuccess] = useState(false);
+  const [toast,          setToast]          = useState(null); // { msg, type: 'success'|'error' }
 
   // Live Staff Status
   const [staffStatus,        setStaffStatus]        = useState([]);
@@ -295,6 +296,11 @@ export default function AttendanceTab({ isMobile }) {
     return () => clearInterval(id);
   }, []);
 
+  function showToast(msg, type = 'success') {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  }
+
   async function handleSendReply(msgId) {
     const text = (replyDrafts[msgId] || '').trim();
     if (!text || !att) return;
@@ -305,9 +311,11 @@ export default function AttendanceTab({ isMobile }) {
       if (result?.error) throw new Error(result.error);
       setReplyDrafts(prev => ({ ...prev, [msgId]: '' }));
       setReplyStatus(prev => ({ ...prev, [msgId]: 'sent' }));
+      showToast('Message sent!');
       setTimeout(() => setReplyStatus(prev => ({ ...prev, [msgId]: null })), 3000);
     } catch {
       setReplyStatus(prev => ({ ...prev, [msgId]: 'error' }));
+      showToast('Failed to send — please try again.', 'error');
     }
     finally { setReplySending(null); }
   }
@@ -317,10 +325,14 @@ export default function AttendanceTab({ isMobile }) {
     if (!text || !att) return;
     setComposeSending(true); setComposeSuccess(false);
     try {
-      await fetchJsonp({ type: 'messages', action: 'send', from: att.agentName, to: 'Admin', message: text });
+      const result = await fetchJsonp({ type: 'messages', action: 'send', from: att.agentName, to: 'Admin', message: text });
+      if (result?.error) throw new Error(result.error);
       setComposeText('');
       setComposeSuccess(true);
-    } catch { /* silent */ }
+      showToast('Message sent!');
+    } catch {
+      showToast('Failed to send — please try again.', 'error');
+    }
     finally { setComposeSending(false); }
   }
 
@@ -570,6 +582,14 @@ export default function AttendanceTab({ isMobile }) {
     </button>
   ) : null;
 
+  const toastEl = toast ? (
+    <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl shadow-2xl text-sm font-semibold text-white flex items-center gap-2 transition-all animate-bounce-in ${
+      toast.type === 'error' ? 'bg-red-600' : 'bg-green-600'
+    }`}>
+      {toast.type === 'error' ? '✗' : '✓'} {toast.msg}
+    </div>
+  ) : null;
+
   // ── Clock-Out Summary ──────────────────────────────────────────────────────
   if (lastClockOut) return (
     <><div className={wrapCls}>
@@ -589,7 +609,7 @@ export default function AttendanceTab({ isMobile }) {
       <button onClick={() => setLastClockOut(null)} className="w-full border border-gray-200 rounded-xl py-2 text-sm text-gray-400 hover:text-gray-600 transition-colors">
         Clock in again
       </button>
-    </div>{reportBtn}</>
+    </div>{reportBtn}{toastEl}</>
   );
 
   // ── Idle ──────────────────────────────────────────────────────────────────
@@ -883,7 +903,7 @@ export default function AttendanceTab({ isMobile }) {
           </button>
         </div>
         <p className="text-xs text-gray-400 text-center">{att.agentName} · Clocked in at {att.clockInPhTime}</p>
-      </div>{reportBtn}</>
+      </div>{reportBtn}{toastEl}</>
     );
   }
 
@@ -1076,6 +1096,6 @@ export default function AttendanceTab({ isMobile }) {
         )}
         {status === 'error' && <p className="text-red-500 text-xs text-center">Failed. Please try again.</p>}
       </div>
-    </div>{reportBtn}</>
+    </div>{reportBtn}{toastEl}</>
   );
 }
