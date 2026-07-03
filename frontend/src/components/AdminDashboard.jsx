@@ -9,7 +9,7 @@ function fetchAdmin(action, extra = {}) {
   return new Promise((resolve, reject) => {
     const adminKey = sessionStorage.getItem('cwc_admin_key') || '';
     const cb   = '__adm_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-    const tid  = setTimeout(() => { cleanup(); reject(new Error('Request timed out')); }, 15000);
+    const tid  = setTimeout(() => { cleanup(); reject(new Error('Request timed out')); }, 30000);
     const script = document.createElement('script');
 
     function cleanup() { clearTimeout(tid); delete window[cb]; script.remove(); }
