@@ -161,6 +161,14 @@ export default function AdminDashboard({ onLogout }) {
     return () => clearInterval(id);
   }, [loadDash]);
 
+  // Auto-refresh message history every 30 s — but only while it's open.
+  // Triggered by the admin opening the panel; stops when they leave the page.
+  useEffect(() => {
+    if (msgHistory === null) return;
+    const id = setInterval(handleLoadMsgHistory, 30000);
+    return () => clearInterval(id);
+  }, [msgHistory !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     fetchAdmin('get_staff')
       .then(data => { if (data?.names) setStaffList(data.names); })
