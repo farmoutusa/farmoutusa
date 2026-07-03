@@ -166,6 +166,7 @@ export default function AttendanceTab({ isMobile }) {
   // Reply-to-message + message-admin composer
   const [replyDrafts,   setReplyDrafts]   = useState({}); // { [msgId]: text }
   const [replySending,  setReplySending]  = useState(null); // msgId currently sending
+  const [replyStatus,   setReplyStatus]   = useState({}); // { [msgId]: 'sent' | 'error' }
   const [composeText,   setComposeText]   = useState('');
   const [composeSending, setComposeSending] = useState(false);
   const [composeSuccess, setComposeSuccess] = useState(false);
@@ -298,10 +299,16 @@ export default function AttendanceTab({ isMobile }) {
     const text = (replyDrafts[msgId] || '').trim();
     if (!text || !att) return;
     setReplySending(msgId);
+    setReplyStatus(prev => ({ ...prev, [msgId]: null }));
     try {
-      await fetchJsonp({ type: 'messages', action: 'send', from: att.agentName, to: 'Admin', message: text });
+      const result = await fetchJsonp({ type: 'messages', action: 'send', from: att.agentName, to: 'Admin', message: text });
+      if (result?.error) throw new Error(result.error);
       setReplyDrafts(prev => ({ ...prev, [msgId]: '' }));
-    } catch { /* silent */ }
+      setReplyStatus(prev => ({ ...prev, [msgId]: 'sent' }));
+      setTimeout(() => setReplyStatus(prev => ({ ...prev, [msgId]: null })), 3000);
+    } catch {
+      setReplyStatus(prev => ({ ...prev, [msgId]: 'error' }));
+    }
     finally { setReplySending(null); }
   }
 
@@ -813,12 +820,12 @@ export default function AttendanceTab({ isMobile }) {
                       <span className="text-xs text-gray-400">{m.timestamp}</span>
                     </div>
                     <p className="text-sm text-gray-700">{m.message}</p>
-                    <div className="flex gap-2 pt-1">
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
                       <input
                         value={replyDrafts[m.id] || ''}
                         onChange={e => setReplyDrafts(prev => ({ ...prev, [m.id]: e.target.value }))}
                         placeholder="Type a reply…"
-                        className="flex-1 border border-blue-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        className="flex-1 min-w-0 border border-blue-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
                       />
                       <button
                         onClick={() => handleSendReply(m.id)}
@@ -827,6 +834,8 @@ export default function AttendanceTab({ isMobile }) {
                       >
                         {replySending === m.id ? '…' : 'Reply'}
                       </button>
+                      {replyStatus[m.id] === 'sent'  && <span className="text-xs text-green-600 font-semibold">✓ Sent</span>}
+                      {replyStatus[m.id] === 'error' && <span className="text-xs text-red-500 font-semibold">✗ Failed — try again</span>}
                     </div>
                     <button
                       onClick={() => handleDismissMessage(m.id)}
@@ -932,12 +941,12 @@ export default function AttendanceTab({ isMobile }) {
                     <span className="text-xs text-gray-400">{m.timestamp}</span>
                   </div>
                   <p className="text-sm text-gray-700">{m.message}</p>
-                  <div className="flex gap-2 pt-1">
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
                     <input
                       value={replyDrafts[m.id] || ''}
                       onChange={e => setReplyDrafts(prev => ({ ...prev, [m.id]: e.target.value }))}
                       placeholder="Type a reply…"
-                      className="flex-1 border border-blue-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      className="flex-1 min-w-0 border border-blue-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
                     />
                     <button
                       onClick={() => handleSendReply(m.id)}
@@ -946,6 +955,8 @@ export default function AttendanceTab({ isMobile }) {
                     >
                       {replySending === m.id ? '…' : 'Reply'}
                     </button>
+                    {replyStatus[m.id] === 'sent'  && <span className="text-xs text-green-600 font-semibold">✓ Sent</span>}
+                    {replyStatus[m.id] === 'error' && <span className="text-xs text-red-500 font-semibold">✗ Failed — try again</span>}
                   </div>
                   <button
                     onClick={() => handleDismissMessage(m.id)}
