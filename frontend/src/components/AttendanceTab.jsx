@@ -180,6 +180,7 @@ export default function AttendanceTab({ isMobile }) {
   const breakExceededRef  = useRef(false);
   // Ref to prevent re-entrant auto-logout calls
   const autoLogoutFiredRef = useRef(false);
+  const clockingInRef      = useRef(false);
 
   // 1-second tick to drive live timers
   useEffect(() => {
@@ -367,8 +368,10 @@ export default function AttendanceTab({ isMobile }) {
   // ── Actions ────────────────────────────────────────────────────────────────
 
   async function handleClockIn() {
-    if (!agentName.trim()) { alert('Enter your name first.'); return; }
-    if (!screenshots.length) { setPhotoRequired(true); return; }
+    if (clockingInRef.current) return;
+    clockingInRef.current = true;
+    if (!agentName.trim()) { clockingInRef.current = false; alert('Enter your name first.'); return; }
+    if (!screenshots.length) { clockingInRef.current = false; setPhotoRequired(true); return; }
     setPhotoRequired(false);
     setStatus('sending');
     const [info, ...b64s] = await Promise.all([
@@ -410,7 +413,7 @@ export default function AttendanceTab({ isMobile }) {
       });
       setStatus('idle');
       setScreenshots([]);
-    } catch { setStatus('error'); }
+    } catch { setStatus('error'); } finally { clockingInRef.current = false; }
   }
 
   async function handleForceClockout(confirmed) {
