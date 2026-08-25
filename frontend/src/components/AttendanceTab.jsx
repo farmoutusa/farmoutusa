@@ -181,6 +181,9 @@ export default function AttendanceTab({ isMobile }) {
   // Ref to prevent re-entrant auto-logout calls
   const autoLogoutFiredRef = useRef(false);
   const clockingInRef      = useRef(false);
+  const breakStartRef      = useRef(false);
+  const resumeRef          = useRef(false);
+  const clockingOutRef     = useRef(false);
 
   // 1-second tick to drive live timers
   useEffect(() => {
@@ -427,6 +430,8 @@ export default function AttendanceTab({ isMobile }) {
   }
 
   async function handleBreakStart(breakType, reason) {
+    if (breakStartRef.current) return;
+    breakStartRef.current = true;
     const now = Date.now();
     const accumulated = att.totalWorkMs + (now - att.workSessionStart);
     try {
@@ -434,9 +439,12 @@ export default function AttendanceTab({ isMobile }) {
     } catch {}
     saveAtt({ ...att, phase: 'on_break', totalWorkMs: accumulated, workSessionStart: null, breakStart: now, breakType, breakReason: reason || '' });
     setShowBreakPicker(false); setPendingOther(false); setOtherReason('');
+    breakStartRef.current = false;
   }
 
   async function handleResume() {
+    if (resumeRef.current) return;
+    resumeRef.current = true;
     const now = Date.now();
     breakWarnedRef.current   = false;
     breakExceededRef.current = false;
@@ -445,10 +453,13 @@ export default function AttendanceTab({ isMobile }) {
       await log({ type: 'attendance', action: 'RESUME', agentName: att.agentName, timestamp: fmtNow(), clientEpoch: now, breakType: att.breakType, breakDuration: fmtDuration(now - att.breakStart) });
     } catch {}
     saveAtt({ ...att, phase: 'working', workSessionStart: now, breakStart: null, breakType: null, breakReason: '' });
+    resumeRef.current = false;
   }
 
   async function handleClockOut() {
     if (!att || att.phase !== 'working') return;
+    if (clockingOutRef.current) return;
+    clockingOutRef.current = true;
     setStatus('sending');
     const now = Date.now();
     const totalWorkMs = att.totalWorkMs + (now - att.workSessionStart);
@@ -468,7 +479,7 @@ export default function AttendanceTab({ isMobile }) {
       setStatus('idle');
       setOvertimeActive(false);
       setMessages([]);
-    } catch { setStatus('error'); }
+    } catch { setStatus('error'); } finally { clockingOutRef.current = false; }
   }
 
   async function handleOvertimeContinue() {
