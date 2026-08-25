@@ -371,7 +371,7 @@ export default function AttendanceTab({ isMobile }) {
   // ── Actions ────────────────────────────────────────────────────────────────
 
   async function handleClockIn() {
-    if (clockingInRef.current) return;
+    if (clockingInRef.current) { showToast('Already processing — please press only once.', 'error'); return; }
     clockingInRef.current = true;
     if (!agentName.trim()) { clockingInRef.current = false; alert('Enter your name first.'); return; }
     if (!screenshots.length) { clockingInRef.current = false; setPhotoRequired(true); return; }
@@ -430,7 +430,7 @@ export default function AttendanceTab({ isMobile }) {
   }
 
   async function handleBreakStart(breakType, reason) {
-    if (breakStartRef.current) return;
+    if (breakStartRef.current) { showToast('Already processing — please press only once.', 'error'); return; }
     breakStartRef.current = true;
     const now = Date.now();
     const accumulated = att.totalWorkMs + (now - att.workSessionStart);
@@ -443,7 +443,7 @@ export default function AttendanceTab({ isMobile }) {
   }
 
   async function handleResume() {
-    if (resumeRef.current) return;
+    if (resumeRef.current) { showToast('Already processing — please press only once.', 'error'); return; }
     resumeRef.current = true;
     const now = Date.now();
     breakWarnedRef.current   = false;
@@ -458,7 +458,7 @@ export default function AttendanceTab({ isMobile }) {
 
   async function handleClockOut() {
     if (!att || att.phase !== 'working') return;
-    if (clockingOutRef.current) return;
+    if (clockingOutRef.current) { showToast('Already processing — please press only once.', 'error'); return; }
     clockingOutRef.current = true;
     setStatus('sending');
     const now = Date.now();
