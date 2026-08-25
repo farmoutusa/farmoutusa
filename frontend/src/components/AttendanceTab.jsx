@@ -401,9 +401,9 @@ export default function AttendanceTab({ isMobile }) {
         }
         throw new Error(result?.error || 'GAS rejected the request');
       }
-      // Screenshots sent separately (fire-and-forget, supplementary)
+      // Screenshots sent via ATTACH_SCREENSHOT (bypasses duplicate-CLOCK_IN guard in GAS)
       b64s.forEach((b64, idx) => {
-        if (b64) log({ ...basePayload, screenshot: b64, ...(b64s.length > 1 ? { screenshotNum: idx + 1, screenshotOf: b64s.length } : {}) });
+        if (b64) log({ type: 'attendance', action: 'ATTACH_SCREENSHOT', agentName: name, timestamp: phTime, clientEpoch: ts, screenshot: b64, ...(b64s.length > 1 ? { screenshotNum: idx + 1, screenshotOf: b64s.length } : {}) });
       });
       localStorage.setItem('cwc_agent_name', name);
       setOvertimeActive(false);

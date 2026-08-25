@@ -227,6 +227,40 @@ function handleAttendance(data) {
     return { success: true };
   }
 
+  // ── Screenshot attachment — separate action so it bypasses the duplicate check ──
+  if (action === 'ATTACH_SCREENSHOT') {
+    if (!data.screenshot || data.screenshot.length <= 20) return { success: false, error: 'no_screenshot' };
+    try {
+      var decoded  = Utilities.base64Decode(data.screenshot);
+      var filename = 'attendance_' + (agentName || 'unknown') + '_' +
+                     Utilities.formatDate(new Date(), 'Asia/Manila', 'yyyyMMdd_HHmmss') + '.jpg';
+      var blob     = Utilities.newBlob(decoded, 'image/jpeg', filename);
+      var iter     = DriveApp.getFoldersByName('CallbackVM Screenshots');
+      var folder   = iter.hasNext() ? iter.next() : DriveApp.createFolder('CallbackVM Screenshots');
+      var file     = folder.createFile(blob);
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      var link = file.getUrl();
+      // Backfill the link onto the most recent CLOCK_IN row for this agent
+      if (sheet && sheet.getLastRow() > 1) {
+        var sRows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues();
+        for (var si = sRows.length - 1; si >= 0; si--) {
+          if (String(sRows[si][1]) === agentName && String(sRows[si][2]) === 'CLOCK_IN') {
+            var targetRow = si + 2;
+            var existing  = String(sRows[si][7]);
+            sheet.getRange(targetRow, 8).setValue(
+              (existing && existing.startsWith('http')) ? existing + '\n' + link : link
+            );
+            break;
+          }
+        }
+      }
+      return { success: true, screenshotLink: link };
+    } catch (imgErr) {
+      console.error('ATTACH_SCREENSHOT error:', imgErr.toString());
+      return { success: false, error: imgErr.toString() };
+    }
+  }
+
   // ── Duplicate clock-in prevention (multi-browser/device) ──────────────────
   if (action === 'CLOCK_IN') {
     var nowCheck = new Date().getTime();
@@ -262,23 +296,7 @@ function handleAttendance(data) {
     details = 'Overtime started at: ' + (data.timestamp || '');
   }
 
-  // Screenshot → Google Drive (CLOCK_IN only)
   var screenshotLink = '';
-  if (action === 'CLOCK_IN' && data.screenshot && data.screenshot.length > 20) {
-    try {
-      var decoded  = Utilities.base64Decode(data.screenshot);
-      var filename = 'attendance_' + (agentName || 'unknown') + '_' +
-                     Utilities.formatDate(new Date(), 'Asia/Manila', 'yyyyMMdd_HHmmss') + '.jpg';
-      var blob     = Utilities.newBlob(decoded, 'image/jpeg', filename);
-      var iter     = DriveApp.getFoldersByName('CallbackVM Screenshots');
-      var folder   = iter.hasNext() ? iter.next() : DriveApp.createFolder('CallbackVM Screenshots');
-      var file     = folder.createFile(blob);
-      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-      screenshotLink = file.getUrl();
-    } catch (imgErr) {
-      console.error('Screenshot error:', imgErr.toString());
-    }
-  }
 
   var serverEpoch = new Date().getTime();
 
@@ -1070,9 +1088,11 @@ function handleAdminRequest(data) {
       var msgSheet2 = ss.getSheetByName('Messages');
       if (!msgSheet2 || msgSheet2.getLastRow() < 2) return jsonp({ messages: [] });
       var cutoffMs  = new Date().getTime() - 7 * 24 * 60 * 60 * 1000;
-      // Read 7 columns: col 7 (index 6) is Epoch_ms added for reliable date comparison.
-      // Old rows without col 7 return '' which becomes 0 via Number() — handled by fallback.
-      var allRows   = msgSheet2.getRange(2, 1, msgSheet2.getLastRow() - 1, 7).getValues();
+      // Only read the last 150 rows — we only ever return 20 messages so this is plenty.
+      var lastRow2  = msgSheet2.getLastRow();
+      var numRows2  = Math.min(lastRow2 - 1, 150);
+      var startRow2 = Math.max(2, lastRow2 - numRows2 + 1);
+      var allRows   = msgSheet2.getRange(startRow2, 1, numRows2, 7).getValues();
       var recent    = [];
       for (var mi = allRows.length - 1; mi >= 0; mi--) {
         var rowTs     = allRows[mi][1];
