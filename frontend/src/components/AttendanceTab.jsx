@@ -217,7 +217,7 @@ export default function AttendanceTab({ isMobile }) {
     const statusLabel = { working: 'Working', on_break: 'On Break', idle: 'Idle' };
     const lines = [
       '=== FARMOUTUSA VM ERROR REPORT ===',
-      'App: v4.0',
+      'App: v5.0',
       'Time: ' + fmtNow(),
       'Agent: ' + (att?.agentName || agentName || '—'),
       'Status: ' + (statusLabel[att?.phase] || 'Idle'),
