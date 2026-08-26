@@ -147,6 +147,7 @@ export default function AttendanceTab({ isMobile }) {
   const [screenshotAllowed,   setScreenshotAllowed]   = useState(false);
   const [screenshots,         setScreenshots]         = useState([]);
   const [status,              setStatus]              = useState('idle');
+  const [clockInMsg,          setClockInMsg]          = useState(null); // progressive wait message
   const [showBreakPicker,     setShowBreakPicker]     = useState(false);
   const [pendingOther,        setPendingOther]        = useState(false);
   const [otherReason,         setOtherReason]         = useState('');
@@ -377,6 +378,9 @@ export default function AttendanceTab({ isMobile }) {
     if (!screenshots.length) { clockingInRef.current = false; setPhotoRequired(true); return; }
     setPhotoRequired(false);
     setStatus('sending');
+    setClockInMsg('Connecting…');
+    // After 12s show a "please wait" message — GAS cold starts can take 20-25s
+    const slowTimer = setTimeout(() => setClockInMsg('Still connecting — server is warming up. Do NOT press again.'), 12000);
     const [info, ...b64s] = await Promise.all([
       getClientInfo(),
       ...screenshots.map(s => compressToThumb(s.file)),
@@ -391,8 +395,9 @@ export default function AttendanceTab({ isMobile }) {
       browser: info.browser, screenRes: info.screenRes,
     };
     try {
-      // JSONP confirms GAS received the event — no screenshot to keep URL short
-      const result = await fetchJsonp(basePayload, 15000);
+      // 45s timeout — long enough to survive a GAS cold start (~20-25s)
+      const result = await fetchJsonp(basePayload, 45000);
+      clearTimeout(slowTimer);
       if (!result || result.error) {
         if (result?.error === 'already_clocked_in') {
           setStatus('idle');
@@ -416,7 +421,7 @@ export default function AttendanceTab({ isMobile }) {
       });
       setStatus('idle');
       setScreenshots([]);
-    } catch { setStatus('error'); } finally { clockingInRef.current = false; }
+    } catch { clearTimeout(slowTimer); setStatus('error'); } finally { setClockInMsg(null); clockingInRef.current = false; }
   }
 
   async function handleForceClockout(confirmed) {
@@ -753,9 +758,12 @@ export default function AttendanceTab({ isMobile }) {
 
         <button onClick={handleClockIn} disabled={status === 'sending'}
           className="w-full bg-blue-900 text-white py-3 rounded-xl text-sm font-bold hover:bg-blue-800 disabled:opacity-40 transition-colors">
-          {status === 'sending' ? 'Logging…' : '✅ Clock In'}
+          {status === 'sending' ? '⏳ Please wait…' : '✅ Clock In'}
         </button>
-        {status === 'error' && <p className="text-red-500 text-xs text-center">Failed. Please try again.</p>}
+        {status === 'sending' && clockInMsg && (
+          <p className="text-blue-700 text-xs text-center font-medium animate-pulse">{clockInMsg}</p>
+        )}
+        {status === 'error' && <p className="text-red-500 text-xs text-center">Connection failed — please try again.</p>}
       </div>
       <p className="text-xs text-gray-400 text-center pb-2">IP address, device, and location are captured automatically.</p>
     </div>
