@@ -148,6 +148,7 @@ export default function AttendanceTab({ isMobile }) {
   const [screenshots,         setScreenshots]         = useState([]);
   const [status,              setStatus]              = useState('idle');
   const [clockInMsg,          setClockInMsg]          = useState(null); // progressive wait message
+  const [resumeSessionPrompt, setResumeSessionPrompt] = useState(null); // { clockInEpoch, clockInPhTime, employeeType, dailyCapMs }
   const [showBreakPicker,     setShowBreakPicker]     = useState(false);
   const [pendingOther,        setPendingOther]        = useState(false);
   const [otherReason,         setOtherReason]         = useState('');
@@ -401,7 +402,12 @@ export default function AttendanceTab({ isMobile }) {
       if (!result || result.error) {
         if (result?.error === 'already_clocked_in') {
           setStatus('idle');
-          setForceClockoutPrompt(true);
+          setResumeSessionPrompt({
+            clockInEpoch:  result.clockInEpoch  || Date.now(),
+            clockInPhTime: result.clockInPhTime  || '',
+            employeeType:  result.employeeType   || 'Part-time',
+            dailyCapMs:    result.dailyCapMs     || null,
+          });
           return;
         }
         throw new Error(result?.error || 'GAS rejected the request');
@@ -424,8 +430,25 @@ export default function AttendanceTab({ isMobile }) {
     } catch { clearTimeout(slowTimer); setStatus('error'); } finally { setClockInMsg(null); clockingInRef.current = false; }
   }
 
+  function handleResumeSession(prompt) {
+    setResumeSessionPrompt(null);
+    const name = agentName.trim();
+    localStorage.setItem('cwc_agent_name', name);
+    autoLogoutFiredRef.current = false;
+    setOvertimeActive(false);
+    saveAtt({
+      phase: 'working', agentName: name,
+      clockInTs: prompt.clockInEpoch, clockInPhTime: prompt.clockInPhTime,
+      totalWorkMs: 0, workSessionStart: prompt.clockInEpoch,
+      breakStart: null, breakType: null, breakReason: '',
+      employeeType: prompt.employeeType || 'Part-time',
+      dailyCapMs: prompt.dailyCapMs || null,
+    });
+  }
+
   async function handleForceClockout(confirmed) {
     setForceClockoutPrompt(false);
+    setResumeSessionPrompt(null);
     if (!confirmed) return;
     setStatus('sending');
     try {
@@ -767,6 +790,29 @@ export default function AttendanceTab({ isMobile }) {
       </div>
       <p className="text-xs text-gray-400 text-center pb-2">IP address, device, and location are captured automatically.</p>
     </div>
+
+    {resumeSessionPrompt && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+        <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-3">
+          <p className="text-sm font-bold text-gray-800">✅ You're Already Clocked In</p>
+          <p className="text-xs text-gray-600 leading-relaxed">
+            Your clock-in was recorded successfully
+            {resumeSessionPrompt.clockInPhTime ? <> at <span className="font-semibold">{resumeSessionPrompt.clockInPhTime}</span></> : ''}.
+            Your session is active — just resume it.
+          </p>
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <button onClick={() => { setResumeSessionPrompt(null); setForceClockoutPrompt(true); }}
+              className="py-2.5 rounded-xl text-xs font-semibold border border-gray-300 text-gray-500 hover:bg-gray-50 transition-colors">
+              Different Device
+            </button>
+            <button onClick={() => handleResumeSession(resumeSessionPrompt)}
+              className="py-2.5 rounded-xl text-sm font-bold bg-green-600 text-white hover:bg-green-700 transition-colors">
+              Resume Session
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {forceClockoutPrompt && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">

@@ -268,17 +268,22 @@ function handleAttendance(data) {
     if (sheet.getLastRow() > 1) {
       var checkRows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 11).getValues();
       var hasOpenSession = false;
+      var openClockInEpoch = 0;
+      var openClockInTime  = '';
       // Walk rows chronologically; track the most recent CLOCK_IN/CLOCK_OUT for this agent
       for (var ci = 0; ci < checkRows.length; ci++) {
         var cAgent  = String(checkRows[ci][1]);
         var cAction = String(checkRows[ci][2]);
         var cEpoch  = Number(checkRows[ci][10]);
+        var cTime   = String(checkRows[ci][0]);
         if (cAgent !== agentName || !cEpoch || cEpoch < cutoffCheck) continue;
-        if (cAction === 'CLOCK_IN')  hasOpenSession = true;
-        if (cAction === 'CLOCK_OUT') hasOpenSession = false;
+        if (cAction === 'CLOCK_IN')  { hasOpenSession = true;  openClockInEpoch = cEpoch; openClockInTime = cTime; }
+        if (cAction === 'CLOCK_OUT') { hasOpenSession = false; openClockInEpoch = 0;      openClockInTime = '';   }
       }
       if (hasOpenSession) {
-        return { success: false, error: 'already_clocked_in' };
+        var resumeEmpType   = getEmployeeType(ss, agentName);
+        var resumeDailyCapMs = HOUR_CAPS[resumeEmpType] || HOUR_CAPS['Part-time'];
+        return { success: false, error: 'already_clocked_in', clockInEpoch: openClockInEpoch, clockInPhTime: openClockInTime, employeeType: resumeEmpType, dailyCapMs: resumeDailyCapMs };
       }
     }
   }
