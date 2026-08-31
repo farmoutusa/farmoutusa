@@ -465,6 +465,96 @@ function computeServerDuration(sheet, agentName, clockOutEpoch) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Server-side hour-cap enforcer — run hourly via a time-based trigger.
+// Closes any session that has exceeded the employee's cap + 1-hr buffer,
+// guarding against browsers that were closed before the client-side cap fired.
+// To install the trigger: run setupAutoCloseTrigger() once from the GAS editor.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function autoCloseStaleShifts() {
+  var ss    = SpreadsheetApp.openById(SHEET_ID);
+  var sheet = ss.getSheetByName('Attendance Log');
+  if (!sheet || sheet.getLastRow() < 2) return;
+
+  var now    = new Date().getTime();
+  var cutoff = now - 7 * 24 * 60 * 60 * 1000; // look back 7 days
+  var rows   = sheet.getRange(2, 1, sheet.getLastRow() - 1, 11).getValues();
+
+  // Build map of currently-open sessions (CLOCK_IN without subsequent CLOCK_OUT)
+  var open = {}; // agentName -> { clockInEpoch, clockInTime }
+  for (var i = 0; i < rows.length; i++) {
+    var rAgent  = String(rows[i][1]);
+    var rAction = String(rows[i][2]);
+    var rEpoch  = Number(rows[i][10]);
+    var rTime   = String(rows[i][0]);
+    if (!rAgent || !rEpoch || rEpoch < cutoff) continue;
+    if (rAction === 'CLOCK_IN')  open[rAgent] = { clockInEpoch: rEpoch, clockInTime: rTime };
+    if (rAction === 'CLOCK_OUT') delete open[rAgent];
+  }
+
+  var BUFFER_MS = 60 * 60 * 1000; // 1-hour grace period past cap before auto-close
+
+  for (var name in open) {
+    var sess    = open[name];
+    var empType = getEmployeeType(ss, name);
+    var capMs   = HOUR_CAPS[empType] || HOUR_CAPS['Part-time'];
+    var elapsed = now - sess.clockInEpoch;
+
+    if (elapsed < capMs + BUFFER_MS) continue; // not yet over cap+buffer
+
+    // Clock-out epoch = clock-in + cap (so logged hours = exactly the cap)
+    var coEpoch  = sess.clockInEpoch + capMs;
+    var coTime   = Utilities.formatDate(new Date(coEpoch), 'Asia/Manila', 'MM/dd/yyyy hh:mm:ss a');
+    var capSec   = Math.floor(capMs / 1000);
+    var capHhmmss = String(Math.floor(capSec/3600)).padStart(2,'0') + ':' +
+                    String(Math.floor((capSec%3600)/60)).padStart(2,'0') + ':' +
+                    String(capSec%60).padStart(2,'0');
+    var capHours = (capMs / 3600000).toFixed(4);
+
+    sheet.appendRow([
+      coTime, name, 'CLOCK_OUT',
+      'Auto clock-out: ' + (capMs/3600000) + '-hr cap reached (browser closed)',
+      '', '', '', '',
+      capHhmmss, capHours, coEpoch,
+    ]);
+    sheet.autoResizeColumns(1, 10);
+
+    // Update daily summary
+    try {
+      updateDailySummary(ss, {
+        agentName: name, timestamp: coTime, clockInTime: sess.clockInTime,
+        totalWorked: capHhmmss, durationHours: capHours,
+      });
+    } catch (e) { console.error('autoClose updateDailySummary:', e); }
+
+    // Notify admin
+    try {
+      MailApp.sendEmail(
+        NOTIFICATION_EMAIL,
+        'Auto Clock-Out: ' + name + ' — ' + (capMs/3600000) + '-hr cap reached',
+        'Staff:     ' + name + '\n' +
+        'Type:      ' + empType + '\n' +
+        'Clock-In:  ' + sess.clockInTime + '\n' +
+        'Clock-Out: ' + coTime + ' (automatic)\n' +
+        'Worked:    ' + capHhmmss + '\n\n' +
+        'The browser was closed before the in-app cap timer could fire.\n' +
+        'Hours have been capped at the ' + (capMs/3600000) + '-hr daily limit.'
+      );
+    } catch (e) { console.error('autoClose email error:', e); }
+
+    console.log('autoCloseStaleShifts: closed session for ' + name + ' at cap ' + capHhmmss);
+  }
+}
+
+function setupAutoCloseTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'autoCloseStaleShifts') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('autoCloseStaleShifts').timeBased().everyHours(1).create();
+  Logger.log('Hourly trigger for autoCloseStaleShifts created.');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Daily Summary tab — one row per staff member per day, accumulates hours across
 // multiple sessions (e.g. half-day then come back)
 // ─────────────────────────────────────────────────────────────────────────────
